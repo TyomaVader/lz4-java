@@ -21,6 +21,22 @@ final class LZ4Java@{type}${size}Decompressor extends LZ4${size}Decompressor {
 
 @include{"decompress.template"; storage = "ByteBuffer"; utils = "ByteBufferUtils"}
 
+@if{ size == "Safe" }
+  @Override
+  public int decompress(byte[] src, int srcOff, int srcLen, byte[] dest, int destOff, int maxDestLen, byte[] dict, int dictOff, int dictSize) {
+    // Dictionary decompression is only supported by the native JNI implementation
+    throw new UnsupportedOperationException("Dictionary decompression is not supported by pure Java implementations. Use LZ4Factory.nativeInstance().safeDecompressor() instead.");
+  }
+@end{}
+
+@if{ size == "Safe" }
+  @Override
+  public int decompress(ByteBuffer src, int srcOff, int srcLen, ByteBuffer dest, int destOff, int maxDestLen, ByteBuffer dict, int dictOff, int dictSize) {
+    // Dictionary decompression is only supported by the native JNI implementation
+    throw new UnsupportedOperationException("Dictionary decompression is not supported by pure Java implementations. Use LZ4Factory.nativeInstance().safeDecompressor() instead.");
+  }
+@end{}
+
 
 }
 

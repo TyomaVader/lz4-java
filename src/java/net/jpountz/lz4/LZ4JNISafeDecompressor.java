@@ -32,10 +32,51 @@ final class LZ4JNISafeDecompressor extends LZ4SafeDecompressor {
   private static LZ4SafeDecompressor SAFE_INSTANCE;
 
   @Override
-  public final int decompress(byte[] src, int srcOff, int srcLen, byte[] dest, int destOff, int maxDestLen) {
+  public int decompress(byte[] src, int srcOff, int srcLen, byte[] dest, int destOff, int maxDestLen) {
     SafeUtils.checkRange(src, srcOff, srcLen);
     SafeUtils.checkRange(dest, destOff, maxDestLen);
     final int result = LZ4JNI.LZ4_decompress_safe(src, null, srcOff, srcLen, dest, null, destOff, maxDestLen);
+    if (result < 0) {
+      throw new LZ4Exception("Error decoding offset " + (srcOff - result) + " of input buffer");
+    }
+    return result;
+  }
+
+  @Override
+  public int decompress(byte[] src, int srcOff, int srcLen,
+                        byte[] dest, int destOff, int maxDestLen,
+                        byte[] dict, int dictOff, int dictSize) {
+    SafeUtils.checkRange(src, srcOff, srcLen);
+    SafeUtils.checkRange(dest, destOff, maxDestLen);
+    if (dict != null) {
+      SafeUtils.checkRange(dict, dictOff, dictSize);
+    }
+    final int result = LZ4JNI.LZ4_decompress_safe_usingDict(
+      src, null, srcOff, srcLen,
+      dest, null, destOff, maxDestLen,
+      dict, null, dictOff, dictSize
+    );
+    if (result < 0) {
+      throw new LZ4Exception("Error decoding offset " + (srcOff - result) + " of input buffer");
+    }
+    return result;
+  }
+
+  @Override
+  public int decompress(ByteBuffer src, int srcOff, int srcLen,
+                        ByteBuffer dest, int destOff, int maxDestLen,
+                        ByteBuffer dict, int dictOff, int dictSize) {
+    ByteBufferUtils.checkRange(src, srcOff, srcLen);
+    ByteBufferUtils.checkRange(dest, destOff, maxDestLen);
+    if (dict != null) {
+      ByteBufferUtils.checkRange(dict, dictOff, dictSize);
+    }
+    final int result = LZ4JNI.LZ4_decompress_safe_usingDict(
+      null, src, srcOff, srcLen,
+      null, dest, destOff, maxDestLen,
+      dict != null ? dict.array() : null,
+      dict, dictOff, dictSize
+    );
     if (result < 0) {
       throw new LZ4Exception("Error decoding offset " + (srcOff - result) + " of input buffer");
     }
