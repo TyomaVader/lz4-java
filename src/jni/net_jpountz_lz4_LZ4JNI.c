@@ -17,6 +17,7 @@
 #include "lz4.h"
 #include "lz4hc.h"
 #include <jni.h>
+#include <string.h>
 
 static jclass OutOfMemoryError;
 
@@ -418,6 +419,51 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1loadDictSlow
 
 /*
  * Class:     net_jpountz_lz4_LZ4JNI
+ * Method:    LZ4_setupDict
+ * Signature:
+ *
+ * Replaces the dictionary with data copied from src and loads it into the stream.
+ * Shortcut for:
+ * <pre>
+ *    dictBuffer.clear();
+ *    dictBuffer.put(srcArray, srcOff, srcLen);
+ *    LZ4_loadDict(streamPtr, dictBuffer, 0, srcLen);
+ * </pre>
+ */
+JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDict
+  (JNIEnv *env, jclass cls, jlong streamPtr, jobject dictBuffer,
+  jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen) {
+
+  LZ4_stream_t* stream = (LZ4_stream_t*)(intptr_t)streamPtr;
+  char* dict = (char*) (*env)->GetDirectBufferAddress(env, dictBuffer);
+
+  char* src;
+  if (srcArray != NULL) {
+    src = (char*) (*env)->GetPrimitiveArrayCritical(env, srcArray, 0);
+  } else {
+    src = (char*) (*env)->GetDirectBufferAddress(env, srcBuffer);
+  }
+
+  if (dict == NULL || src == NULL) {
+    if (srcArray != NULL) {
+      (*env)->ReleasePrimitiveArrayCritical(env, srcArray, src, 0);
+    }
+    throw_OOM(env);
+    return 0;
+  }
+
+  memcpy(dict, src + srcOff, srcLen);
+  if (srcArray != NULL) {
+    (*env)->ReleasePrimitiveArrayCritical(env, srcArray, src, 0);
+  }
+
+  jint result = LZ4_loadDict(stream, dict, srcLen);
+  return result;
+
+}
+
+/*
+ * Class:     net_jpountz_lz4_LZ4JNI
  * Method:    LZ4_attach_dictionary
  * Signature: (JJ)V
  * 
@@ -510,6 +556,66 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1compress_1fast_1continue
 }
 
 /*
+ * Class: net_jpountz_lz4_LZ4JNI
+ * Method: LZ4_reset_attachDict_compress
+ * Signature:
+ *
+ * Resets the stream, attaches dictionary to it, and compresses in one call.
+ */
+JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1reset_1attachDict_1compress
+  (JNIEnv *env, jclass cls, jlong streamPtr, jlong dictStreamPtr, jint acceleration,
+  jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen,
+  jbyteArray destArray, jobject destBuffer, jint destOff, jint maxDestLen) {
+
+  LZ4_stream_t* localStream = (LZ4_stream_t*)(intptr_t)streamPtr;
+  LZ4_resetStream_fast(localStream);
+
+  const LZ4_stream_t* globalStream = (const LZ4_stream_t*)(intptr_t)dictStreamPtr;
+  LZ4_attach_dictionary(localStream, globalStream);
+
+  char* in;
+  char* out;
+  jint compressed;
+
+  if (srcArray != NULL) {
+    in = (char*) (*env)->GetPrimitiveArrayCritical(env, srcArray, 0);
+  } else {
+    in = (char*) (*env)->GetDirectBufferAddress(env, srcBuffer);
+  }
+
+  if (in == NULL) {
+    throw_OOM(env);
+    return 0;
+  }
+
+  if (destArray != NULL) {
+    out = (char*) (*env)->GetPrimitiveArrayCritical(env, destArray, 0);
+  } else {
+    out = (char*) (*env)->GetDirectBufferAddress(env, destBuffer);
+  }
+
+  if (out == NULL) {
+    if (srcArray != NULL) {
+      (*env)->ReleasePrimitiveArrayCritical(env, srcArray, in, 0);
+    }
+    throw_OOM(env);
+    return 0;
+  }
+
+  compressed = LZ4_compress_fast_continue(localStream, in + srcOff, out + destOff, srcLen, maxDestLen, acceleration);
+
+  if (srcArray != NULL) {
+    (*env)->ReleasePrimitiveArrayCritical(env, srcArray, in, 0);
+  }
+  if (destArray != NULL) {
+    (*env)->ReleasePrimitiveArrayCritical(env, destArray, out, 0);
+  }
+
+  return compressed;
+
+}
+
+/*
  * Class:     net_jpountz_lz4_LZ4JNI
  * Method:    LZ4_createStreamHC
  * Signature: ()J
@@ -570,6 +676,44 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1loadDictHC
   return result;
 
 }
+
+/*
+ * Class:     net_jpountz_lz4_LZ4JNI
+ * Method:    LZ4_setupDictHC
+ * Signature:
+ */
+JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDictHC
+  (JNIEnv *env, jclass cls, jlong streamPtr, jobject dictBuffer,
+  jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen) {
+
+  LZ4_streamHC_t* stream = (LZ4_streamHC_t*)(intptr_t)streamPtr;
+  char* dict = (char*) (*env)->GetDirectBufferAddress(env, dictBuffer);
+
+  char* src;
+  if (srcArray != NULL) {
+    src = (char*) (*env)->GetPrimitiveArrayCritical(env, srcArray, 0);
+  } else {
+    src = (char*) (*env)->GetDirectBufferAddress(env, srcBuffer);
+  }
+
+  if (dict == NULL || src == NULL) {
+    if (srcArray != NULL) {
+      (*env)->ReleasePrimitiveArrayCritical(env, srcArray, src, 0);
+    }
+    throw_OOM(env);
+    return 0;
+  }
+
+  memcpy(dict, src + srcOff, srcLen);
+  if (srcArray != NULL) {
+    (*env)->ReleasePrimitiveArrayCritical(env, srcArray, src, 0);
+  }
+
+  jint result = LZ4_loadDictHC(stream, dict, srcLen);
+  return result;
+}
+
+
 
 /*
  * Class:     net_jpountz_lz4_LZ4JNI
@@ -649,6 +793,58 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1compress_1HC_1continue
 
   compressed = LZ4_compress_HC_continue(stream, in + srcOff, out + destOff, srcLen, maxDestLen);
 
+  if (srcArray != NULL) {
+    (*env)->ReleasePrimitiveArrayCritical(env, srcArray, in, 0);
+  }
+  if (destArray != NULL) {
+    (*env)->ReleasePrimitiveArrayCritical(env, destArray, out, 0);
+  }
+
+  return compressed;
+
+}
+
+JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1reset_1attachDictHC_1compress
+  (JNIEnv *env, jclass cls, jlong streamPtr, jlong dictStreamPtr, jint compressionLevel,
+  jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen,
+  jbyteArray destArray, jobject destBuffer, jint destOff, jint maxDestLen) {
+
+  LZ4_streamHC_t* localStream = (LZ4_streamHC_t*)(intptr_t)streamPtr;
+  LZ4_resetStreamHC_fast(localStream, compressionLevel);
+
+  const LZ4_streamHC_t* globalStream = (const LZ4_streamHC_t*)(intptr_t)dictStreamPtr;
+  LZ4_attach_HC_dictionary(localStream, globalStream);
+
+  char* in;
+  char* out;
+  jint compressed;
+
+  if (srcArray != NULL) {
+    in = (char*) (*env)->GetPrimitiveArrayCritical(env, srcArray, 0);
+  } else {
+    in = (char*) (*env)->GetDirectBufferAddress(env, srcBuffer);
+  }
+
+  if (in == NULL) {
+    throw_OOM(env);
+    return 0;
+  }
+
+  if (destArray != NULL) {
+    out = (char*) (*env)->GetPrimitiveArrayCritical(env, destArray, 0);
+  } else {
+    out = (char*) (*env)->GetDirectBufferAddress(env, destBuffer);
+  }
+
+  if (out == NULL) {
+    if (srcArray != NULL) {
+      (*env)->ReleasePrimitiveArrayCritical(env, srcArray, in, 0);
+    }
+    throw_OOM(env);
+    return 0;
+  }
+
+  compressed = LZ4_compress_HC_continue(localStream, in + srcOff, out + destOff, srcLen, maxDestLen);
   if (srcArray != NULL) {
     (*env)->ReleasePrimitiveArrayCritical(env, srcArray, in, 0);
   }

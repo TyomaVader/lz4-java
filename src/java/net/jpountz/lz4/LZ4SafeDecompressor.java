@@ -46,6 +46,54 @@ public abstract class LZ4SafeDecompressor implements LZ4UnknownSizeDecompressor 
 
   /**
    * Decompresses <code>src[srcOff:srcOff+srcLen]</code> into
+   * <code>dest[destOff:destOff+maxDestLen]</code> using the provided dictionary
+   * and returns the number of decompressed bytes written into <code>dest</code>.
+   * <p>
+   * This method is used to decompress data that was compressed with a dictionary
+   * using {@link LZ4StreamingCompressor#attachDictionary(LZ4Dictionary)}.
+   * The dictionary must be the same one used during compression.
+   * </p>
+   *
+   * @param src the compressed data
+   * @param srcOff the start offset in src
+   * @param srcLen the exact size of the compressed data
+   * @param dest the destination buffer to store the decompressed data
+   * @param destOff the start offset in dest
+   * @param maxDestLen the maximum number of bytes to write in dest
+   * @param dict the dictionary data (must be the same as used for compression)
+   * @param dictOff the start offset in dict
+   * @param dictSize the size of the dictionary
+   * @return the original input size
+   * @throws LZ4Exception if maxDestLen is too small or decompression fails
+   */
+  public abstract int decompress(byte[] src, int srcOff, int srcLen, byte[] dest, int destOff, int maxDestLen, byte[] dict, int dictOff, int dictSize);
+
+  /**
+   * Decompresses <code>src[srcOff:srcOff+srcLen]</code> into
+   * <code>dest[destOff:destOff+maxDestLen]</code> using the provided dictionary
+   * and returns the number of decompressed bytes written into <code>dest</code>.
+   * <p>
+   * This method is used to decompress data that was compressed with a dictionary
+   * using {@link LZ4StreamingCompressor#attachDictionary(LZ4Dictionary)}.
+   * The dictionary must be the same one used during compression.
+   * </p>
+   *
+   * @param src the compressed data
+   * @param srcOff the start offset in src
+   * @param srcLen the exact size of the compressed data
+   * @param dest the destination buffer to store the decompressed data
+   * @param destOff the start offset in dest
+   * @param maxDestLen the maximum number of bytes to write in dest
+   * @param dict the dictionary data (must be the same as used for compression)
+   * @param dictOff the start offset in dict
+   * @param dictSize the size of the dictionary
+   * @return the original input size
+   * @throws LZ4Exception if maxDestLen is too small or decompression fails
+   */
+  public abstract int decompress(ByteBuffer src, int srcOff, int srcLen, ByteBuffer dest, int destOff, int maxDestLen, ByteBuffer dict, int dictOff, int dictSize);
+
+  /**
+   * Decompresses <code>src[srcOff:srcOff+srcLen]</code> into
    * <code>dest[destOff:destOff+maxDestLen]</code> and returns the number of
    * decompressed bytes written into <code>dest</code>.
    * The positions and limits of the {@link ByteBuffer}s remain unchanged.

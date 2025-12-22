@@ -44,7 +44,7 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
     /**
      * Creates test data with some repetitive patterns that compress well.
      */
-    private byte[] createTestData(int size) {
+    private static byte[] createTestData(int size) {
         byte[] data = new byte[size];
         // Create some repetitive patterns for better compression
         for (int i = 0; i < size; i++) {
@@ -62,7 +62,7 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
     /**
      * Creates dictionary data that overlaps with test data patterns.
      */
-    private byte[] createDictionaryData() {
+    private static byte[] createDictionaryData() {
         byte[] dict = new byte[4096];
         // Use patterns similar to test data for better compression
         for (int i = 0; i < dict.length; i++) {
@@ -128,22 +128,14 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
 
     @Test
     public void testDictionaryCreation() {
-        byte[] dictData = createDictionaryData();
-        
         // Test fast dictionary
-        try (LZ4Dictionary dict = LZ4Dictionary.create(dictData, false)) {
-            assertFalse(dict.isClosed());
-            assertFalse(dict.isHighCompression());
-        }
-        
-        // Test fast dictionary with thorough loading
-        try (LZ4Dictionary dict = LZ4Dictionary.create(dictData, true)) {
+        try (LZ4Dictionary dict = LZ4Dictionary.create()) {
             assertFalse(dict.isClosed());
             assertFalse(dict.isHighCompression());
         }
         
         // Test HC dictionary
-        try (LZ4Dictionary dict = LZ4Dictionary.createHC(dictData)) {
+        try (LZ4Dictionary dict = LZ4Dictionary.createHC()) {
             assertFalse(dict.isClosed());
             assertTrue(dict.isHighCompression());
         }
@@ -156,7 +148,8 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
             fullDict[i] = (byte) i;
         }
         
-        try (LZ4Dictionary dict = LZ4Dictionary.create(fullDict, 1000, 4096, false)) {
+        try (LZ4Dictionary dict = LZ4Dictionary.create(4096)) {
+            dict.load(fullDict, 1000, 4096, false);
             assertFalse(dict.isClosed());
         }
     }
@@ -166,9 +159,10 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
         byte[] dictData = createDictionaryData();
         byte[] data = createTestData(500);
         
-        try (LZ4Dictionary dict = LZ4Dictionary.create(dictData, false);
+        try (LZ4Dictionary dict = LZ4Dictionary.create();
              LZ4StreamingCompressor compressor = LZ4StreamingCompressor.create()) {
-            
+            dict.load(dictData, 0, dictData.length, false);
+
             compressor.attachDictionary(dict);
             byte[] compressed = compressor.compress(data);
             
@@ -187,8 +181,9 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
         byte[] dictData = createDictionaryData();
         byte[] data = createTestData(500);
         
-        try (LZ4Dictionary dict = LZ4Dictionary.createHC(dictData);
+        try (LZ4Dictionary dict = LZ4Dictionary.createHC();
              LZ4StreamingCompressor compressor = LZ4StreamingCompressor.createHC()) {
+            dict.load(dictData, 0, dictData.length, true);
             
             compressor.attachDictionary(dict);
             byte[] compressed = compressor.compress(data);
@@ -229,8 +224,9 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
         
         // Compress with dictionary
         byte[] compressedWithDict;
-        try (LZ4Dictionary dict = LZ4Dictionary.create(dictData, true);
+        try (LZ4Dictionary dict = LZ4Dictionary.create();
              LZ4StreamingCompressor compressor = LZ4StreamingCompressor.create()) {
+            dict.load(dictData, 0, dictData.length, true);
             compressor.attachDictionary(dict);
             compressedWithDict = compressor.compress(data);
         }
@@ -260,7 +256,8 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
         final byte[] dictData = createDictionaryData();
         
         // Create a shared dictionary
-        try (LZ4Dictionary sharedDict = LZ4Dictionary.create(dictData, true)) {
+        try (LZ4Dictionary sharedDict = LZ4Dictionary.create()) {
+            sharedDict.load(dictData, 0, dictData.length, true);
             ExecutorService executor = Executors.newFixedThreadPool(NUM_THREADS);
             try {
                 CountDownLatch startLatch = new CountDownLatch(1);
@@ -326,7 +323,8 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
         final int ITERATIONS_PER_THREAD = 50;
         final byte[] dictData = createDictionaryData();
         
-        try (LZ4Dictionary sharedDict = LZ4Dictionary.createHC(dictData)) {
+        try (LZ4Dictionary sharedDict = LZ4Dictionary.createHC()) {
+            sharedDict.load(dictData, 0, dictData.length, true);
             ExecutorService executor = Executors.newFixedThreadPool(NUM_THREADS);
             try {
                 CountDownLatch startLatch = new CountDownLatch(1);
@@ -386,7 +384,8 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
         final int NUM_THREADS = 16;
         final byte[] dictData = createDictionaryData();
         
-        try (LZ4Dictionary sharedDict = LZ4Dictionary.create(dictData, false)) {
+        try (LZ4Dictionary sharedDict = LZ4Dictionary.create()) {
+            sharedDict.load(dictData, 0, dictData.length, false);
             ExecutorService executor = Executors.newFixedThreadPool(NUM_THREADS);
             try {
                 CountDownLatch latch = new CountDownLatch(NUM_THREADS);
@@ -408,7 +407,7 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
                                     byte[] compressed = compressor.compress(data);
                                     
                                     // Verify compression produced output
-                                    if (compressed.length == 0 && data.length > 0) {
+                                    if (compressed.length == 0) {
                                         throw new AssertionError("Compression produced empty output");
                                     }
                                     
@@ -438,8 +437,9 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
     public void testWrongDictionaryTypeForFastCompressor() {
         byte[] dictData = createDictionaryData();
         
-        try (LZ4Dictionary hcDict = LZ4Dictionary.createHC(dictData);
+        try (LZ4Dictionary hcDict = LZ4Dictionary.createHC();
              LZ4StreamingCompressor fastCompressor = LZ4StreamingCompressor.create()) {
+            hcDict.load(dictData, 0, dictData.length, true);
             // Should throw: HC dictionary with fast compressor
             fastCompressor.attachDictionary(hcDict);
         }
@@ -449,8 +449,9 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
     public void testWrongDictionaryTypeForHCCompressor() {
         byte[] dictData = createDictionaryData();
         
-        try (LZ4Dictionary fastDict = LZ4Dictionary.create(dictData, false);
+        try (LZ4Dictionary fastDict = LZ4Dictionary.create();
              LZ4StreamingCompressor hcCompressor = LZ4StreamingCompressor.createHC()) {
+            fastDict.load(dictData, 0, dictData.length, false);
             // Should throw: fast dictionary with HC compressor
             hcCompressor.attachDictionary(fastDict);
         }
@@ -468,7 +469,8 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
     @Test(expected = IllegalStateException.class)
     public void testUseClosedDictionary() {
         byte[] dictData = createDictionaryData();
-        LZ4Dictionary dict = LZ4Dictionary.create(dictData, false);
+        LZ4Dictionary dict = LZ4Dictionary.create();
+        dict.load(dictData, 0, dictData.length, true);
         dict.close();
         
         try (LZ4StreamingCompressor compressor = LZ4StreamingCompressor.create()) {
@@ -481,7 +483,8 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
     public void testCloseIdempotent() {
         byte[] dictData = createDictionaryData();
         
-        LZ4Dictionary dict = LZ4Dictionary.create(dictData, false);
+        LZ4Dictionary dict = LZ4Dictionary.create();
+        dict.load(dictData, 0, dictData.length, true);
         dict.close();
         dict.close(); // Should not throw
         assertTrue(dict.isClosed());
@@ -497,8 +500,9 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
         byte[] dictData = createDictionaryData();
         byte[] data = createTestData(500);
         
-        try (LZ4Dictionary dict = LZ4Dictionary.create(dictData, false);
+        try (LZ4Dictionary dict = LZ4Dictionary.create();
              LZ4StreamingCompressor compressor = LZ4StreamingCompressor.create()) {
+            dict.load(dictData, 0, dictData.length, false);
             
             // Attach dictionary
             compressor.attachDictionary(dict);
@@ -547,7 +551,7 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
 
     @Test
     public void testLargeInput() {
-        byte[] data = createTestData(1024 * 1024); // 1MB
+        byte[] data = createTestData(1024 << 10); // 1MB
         
         try (LZ4StreamingCompressor compressor = LZ4StreamingCompressor.create()) {
             byte[] compressed = compressor.compress(data);
@@ -626,8 +630,10 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
     public void testDictionaryToString() {
         byte[] dictData = createDictionaryData();
         
-        try (LZ4Dictionary fast = LZ4Dictionary.create(dictData, false);
-             LZ4Dictionary hc = LZ4Dictionary.createHC(dictData)) {
+        try (LZ4Dictionary fast = LZ4Dictionary.create();
+             LZ4Dictionary hc = LZ4Dictionary.createHC()) {
+            fast.load(dictData, 0, dictData.length, false);
+            hc.load(dictData, 0, dictData.length, true);
             
             assertTrue(fast.toString().contains("fast"));
             assertTrue(hc.toString().contains("HC"));
@@ -637,7 +643,7 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
     @Test
     public void testParallelBlockCompression() throws Exception {
         final int TOTAL_SIZE = 2 * 1024 * 1024; // 2MB
-        final int BLOCK_SIZE = 64 * 1024; // 64KB blocks
+        final int BLOCK_SIZE = 64 << 10; // 64KB blocks
         final int NUM_THREADS = 4;
         final byte[] dictData = createDictionaryData();
         
@@ -646,7 +652,8 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
         int numBlocks = (TOTAL_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE; // Round up
         
         // Create shared dictionary
-        try (LZ4Dictionary sharedDict = LZ4Dictionary.create(dictData, true)) {
+        try (LZ4Dictionary sharedDict = LZ4Dictionary.create()) {
+            sharedDict.load(dictData, 0, dictData.length, false);
             ExecutorService executor = Executors.newFixedThreadPool(NUM_THREADS);
             try {
                 // Compress blocks in parallel
@@ -661,7 +668,7 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
                         try (LZ4StreamingCompressor compressor = LZ4StreamingCompressor.create()) {
                             // Attach shared dictionary for better compression
                             compressor.attachDictionary(sharedDict);
-                            
+
                             // Compress this block directly from largeData using offsets (no copy)
                             int maxCompressedLen = LZ4StreamingCompressor.maxCompressedLength(blockLen);
                             byte[] compressed = new byte[maxCompressedLen];
@@ -729,7 +736,8 @@ public class LZ4StreamingDictionaryTest extends RandomizedTest {
         int numBlocks = (TOTAL_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE; // Round up
         
         // Create shared HC dictionary
-        try (LZ4Dictionary sharedDict = LZ4Dictionary.createHC(dictData)) {
+        try (LZ4Dictionary sharedDict = LZ4Dictionary.createHC()) {
+            sharedDict.load(dictData, 0, dictData.length, true);
             ExecutorService executor = Executors.newFixedThreadPool(NUM_THREADS);
             try {
                 // Compress blocks in parallel

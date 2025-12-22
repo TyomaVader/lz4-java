@@ -16,133 +16,48 @@ package net.jpountz.lz4;
  * limitations under the License.
  */
 
+import net.jpountz.util.ByteBufferUtils;
+import net.jpountz.util.SafeUtils;
+
 import java.nio.ByteBuffer;
 
-/**
- * A preloaded LZ4 compression dictionary that can be shared across threads.
- * <p>
- * LZ4 1.10.0+ supports efficient dictionary reuse through the 
- * {@code LZ4_attach_dictionary()} API. This class wraps a dictionary stream
- * that has been loaded with dictionary data and can be safely shared across
- * multiple threads for concurrent compression operations.
- * </p>
- * <p>
- * <b>Thread Safety:</b> After creation, an {@code LZ4Dictionary} is READ-ONLY
- * and can be safely shared and used by multiple threads concurrently. Each
- * thread should have its own {@link LZ4StreamingCompressor} that attaches
- * this shared dictionary.
- * </p>
- *
- * @see LZ4StreamingCompressor
- */
 public abstract class LZ4Dictionary implements AutoCloseable {
 
-    /**
-     * Creates a new LZ4 dictionary for fast compression.
-     * <p>
-     * The dictionary data is loaded into an internal stream structure.
-     * Only the last 64KB of dictionary data is used.
-     * </p>
-     * 
-     * @param dictionary the dictionary data
-     * @param thorough if true, uses more CPU to analyze dictionary content
-     *                 more thoroughly, resulting in better compression ratio.
-     *                 Recommended when dictionary will be reused many times.
-     *                 (Uses LZ4_loadDictSlow vs LZ4_loadDict)
-     * @return a new shared dictionary
-     */
-    public static LZ4Dictionary create(byte[] dictionary, boolean thorough) {
-        return create(dictionary, 0, dictionary.length, thorough);
+    public static LZ4Dictionary create() {
+        return new LZ4JNIDictionary(false);
     }
 
+    public static LZ4Dictionary create(int size) {
+        return new LZ4JNIDictionary( false, size);
+    }
+
+    public static LZ4Dictionary createHC() {
+        return new LZ4JNIDictionary(true);
+    }
+
+    public static LZ4Dictionary createHC(int size) {
+        return new LZ4JNIDictionary(true, size);
+    }
 
     /**
-     * Creates a new LZ4 dictionary for fast compression.
-     * <p>
-     * The dictionary data is loaded into an internal stream structure.
-     * Only the last 64KB of dictionary data is used.
-     * </p>
+     * Replaces the dictionary with data copied from src and loads it into the stream.
      *
-     * @param dictionary the dictionary data
-     * @param thorough if true, uses more CPU to analyze dictionary content
-     *                 more thoroughly, resulting in better compression ratio.
-     *                 Recommended when dictionary will be reused many times.
-     *                 (Uses LZ4_loadDictSlow vs LZ4_loadDict)
-     * @return a new shared dictionary
-     */
-    public static LZ4Dictionary create(ByteBuffer dictionary, boolean thorough) {
-        return new LZ4JNIDictionary(dictionary, 0, dictionary.remaining(), thorough, false);
-    }
-
-    /**
-     * Creates a new LZ4 dictionary for fast compression.
-     * 
-     * @param dictionary the dictionary data
-     * @param offset offset in dictionary array
-     * @param length length of dictionary data
+     * @param src source array
+     * @param srcOff offset in source
+     * @param srcLen length of source, must not exceed dictionary buffer capacity
      * @param thorough if true, uses more CPU for better compression ratio
-     * @return a new shared dictionary
      */
-    public static LZ4Dictionary create(byte[] dictionary, int offset, int length, boolean thorough) {
-        return new LZ4JNIDictionary(dictionary, offset, length, thorough, false);
-    }
+    public abstract void load(byte[] src, int srcOff, int srcLen, boolean thorough);
 
     /**
-     * Creates a new LZ4 dictionary for fast compression.
+     * Replaces the dictionary with data copied from src and loads it into the stream.
      *
-     * @param dictionary the dictionary data
-     * @param offset offset in dictionary array
-     * @param length length of dictionary data
+     * @param src source buffer, must be direct or backed by an array
+     * @param srcOff offset in source
+     * @param srcLen length of source, must not exceed dictionary buffer capacity
      * @param thorough if true, uses more CPU for better compression ratio
-     * @return a new shared dictionary
      */
-    public static LZ4Dictionary create(ByteBuffer dictionary, int offset, int length, boolean thorough) {
-        return new LZ4JNIDictionary(dictionary, offset, length, thorough, false);
-    }
-
-    /**
-     * Creates a new LZ4 dictionary for high compression (HC).
-     * 
-     * @param dictionary the dictionary data
-     * @return a new shared HC dictionary
-     */
-    public static LZ4Dictionary createHC(byte[] dictionary) {
-        return createHC(dictionary, 0, dictionary.length);
-    }
-
-    /**
-     * Creates a new LZ4 dictionary for high compression (HC).
-     *
-     * @param dictionary the dictionary data
-     * @return a new shared HC dictionary
-     */
-    public static LZ4Dictionary createHC(ByteBuffer dictionary) {
-      return createHC(dictionary, 0, dictionary.remaining());
-    }
-
-    /**
-     * Creates a new LZ4 dictionary for high compression (HC).
-     * 
-     * @param dictionary the dictionary data
-     * @param offset offset in dictionary array
-     * @param length length of dictionary data
-     * @return a new shared HC dictionary
-     */
-    public static LZ4Dictionary createHC(byte[] dictionary, int offset, int length) {
-        return new LZ4JNIDictionary(dictionary, offset, length, false, true);
-    }
-
-    /**
-     * Creates a new LZ4 dictionary for high compression (HC).
-     *
-     * @param dictionary the dictionary data
-     * @param offset offset in dictionary array
-     * @param length length of dictionary data
-     * @return a new shared HC dictionary
-     */
-    public static LZ4Dictionary createHC(ByteBuffer dictionary, int offset, int length) {
-        return new LZ4JNIDictionary(dictionary, offset, length, false, true);
-    }
+    public abstract void load(ByteBuffer src, int srcOff, int srcLen, boolean thorough);
 
     /**
      * Returns true if this is a high compression (HC) dictionary.
@@ -175,67 +90,116 @@ final class LZ4JNIDictionary extends LZ4Dictionary {
 
     private volatile long streamPtr;
     private final boolean highCompression;
+    private final ByteBuffer dictDataBuffer;
+    private volatile int dictSize = 0;
 
-    LZ4JNIDictionary(byte[] dictionary, int offset, int length, boolean thorough, boolean highCompression) {
-        this.highCompression = highCompression;
-        
-        if (highCompression) {
-            this.streamPtr = LZ4JNI.LZ4_createStreamHC();
-            if (this.streamPtr == 0) {
-                throw new LZ4Exception("Failed to create HC stream");
-            }
-            int loaded = LZ4JNI.LZ4_loadDictHC(this.streamPtr, dictionary, null, offset, length);
-            if (loaded < 0) {
-                LZ4JNI.LZ4_freeStreamHC(this.streamPtr);
-                throw new LZ4Exception("Failed to load HC dictionary");
-            }
-        } else {
-            this.streamPtr = LZ4JNI.LZ4_createStream();
-            if (this.streamPtr == 0) {
-                throw new LZ4Exception("Failed to create stream");
-            }
-            int loaded;
-            if (thorough) {
-                loaded = LZ4JNI.LZ4_loadDictSlow(this.streamPtr, dictionary, null, offset, length);
-            } else {
-                loaded = LZ4JNI.LZ4_loadDict(this.streamPtr, dictionary, null, offset, length);
-            }
-            if (loaded < 0) {
-                LZ4JNI.LZ4_freeStream(this.streamPtr);
-                throw new LZ4Exception("Failed to load dictionary");
-            }
-        }
+    /**
+     * Allocates a new LZ4 dictionary with default dictionary buffer length (64KB).
+     * <p>
+     * Should be followed by a call to {@code load()} to load dictionary data.
+     *
+     * @param highCompression if true, creates a high compression (HC) dictionary
+     */
+    LZ4JNIDictionary(boolean highCompression) {
+        this(highCompression, 64 << 10); // 64KB
     }
 
-    LZ4JNIDictionary(ByteBuffer dictionary, int offset, int length, boolean thorough, boolean highCompression) {
-        this.highCompression = highCompression;
+    /**
+     * Allocates a new LZ4 dictionary with given dictionary buffer length.
+     * <p>
+     * Should be followed by a call to {@code load()} to load dictionary data.
+     *
+     * @param highCompression if true, creates a high compression (HC) dictionary
+     * @param dictLen length of dictionary buffer, must be positive and <= 64KB
+     */
+    LZ4JNIDictionary(boolean highCompression, int dictLen) {
+          if (dictLen <= 0) {
+              throw new IllegalArgumentException("dictLen must be positive");
+          }
+          if (dictLen > (64 << 10)) {
+              throw new IllegalArgumentException("dictLen must be <= 64KB");
+          }
 
-        if (highCompression) {
-            this.streamPtr = LZ4JNI.LZ4_createStreamHC();
-            if (this.streamPtr == 0) {
-                throw new LZ4Exception("Failed to create HC stream");
-            }
-            int loaded = LZ4JNI.LZ4_loadDictHC(this.streamPtr, null, dictionary, offset, length);
-            if (loaded < 0) {
-                LZ4JNI.LZ4_freeStreamHC(this.streamPtr);
-                throw new LZ4Exception("Failed to load HC dictionary");
-            }
-        } else {
-            this.streamPtr = LZ4JNI.LZ4_createStream();
-            if (this.streamPtr == 0) {
-                throw new LZ4Exception("Failed to create stream");
-            }
-            int loaded;
-            if (thorough) {
-                loaded = LZ4JNI.LZ4_loadDictSlow(this.streamPtr, null, dictionary, offset, length);
-            } else {
-                loaded = LZ4JNI.LZ4_loadDict(this.streamPtr, null, dictionary, offset, length);
-            }
-            if (loaded < 0) {
-                LZ4JNI.LZ4_freeStream(this.streamPtr);
-                throw new LZ4Exception("Failed to load dictionary");
-            }
+          this.highCompression = highCompression;
+          if (highCompression) {
+              this.streamPtr = LZ4JNI.LZ4_createStreamHC();
+              if (this.streamPtr == 0) {
+                  throw new LZ4Exception("Failed to create HC stream");
+              }
+          } else {
+              this.streamPtr = LZ4JNI.LZ4_createStream();
+              if (this.streamPtr == 0) {
+                  throw new LZ4Exception("Failed to create stream");
+              }
+          }
+          dictDataBuffer = ByteBuffer.allocateDirect(dictLen);
+      }
+
+    /**
+     * Replaces the dictionary with data copied from src and loads it into the stream.
+     *
+     * @param src source array
+     * @param srcOff offset in source
+     * @param srcLen length of source, must not exceed dictionary buffer capacity
+     * @param thorough if true, uses more CPU for better compression ratio
+     */
+    @Override
+    public void load(byte[] src, int srcOff, int srcLen, boolean thorough) {
+        SafeUtils.checkRange(src, srcOff, srcLen);
+        load(src, null, srcOff, srcLen, thorough);
+    }
+
+    /**
+     * Replaces the dictionary with data copied from src and loads it into the stream.
+     *
+     * @param src source buffer, must be direct or backed by an array
+     * @param srcOff offset in source
+     * @param srcLen length of source, must not exceed dictionary buffer capacity
+     * @param thorough if true, uses more CPU for better compression ratio
+     */
+    @Override
+    public void load(ByteBuffer src, int srcOff, int srcLen, boolean thorough) {
+        ByteBufferUtils.checkRange(src, srcOff, srcLen);
+        load(null, src, srcOff, srcLen, thorough);
+    }
+
+    /**
+     * Replaces the dictionary with data copied from src and loads it into the stream.
+     *
+     * @param srcArray source array
+     * @param srcBuffer source buffer, must be direct or backed by an array
+     * @param srcOff offset in source
+     * @param srcLen length of source, must not exceed dictionary buffer capacity
+     * @param thorough if true, uses more CPU for better compression ratio
+     */
+    private void load(byte[] srcArray, ByteBuffer srcBuffer, int srcOff, int srcLen, boolean thorough) {
+        if (isClosed()) {
+            throw new IllegalStateException("Dictionary has been closed");
         }
+
+        if (srcLen > dictDataBuffer.capacity()) {
+            throw new IndexOutOfBoundsException("Dictionary buffer too small");
+        }
+
+        if (srcBuffer != null && !srcBuffer.isDirect()) {
+            if (!srcBuffer.hasArray()) {
+                throw new IllegalArgumentException("srcBuffer must be direct or backed by an array");
+            }
+            srcArray = srcBuffer.array();
+            srcOff += srcBuffer.arrayOffset();
+            srcBuffer = null;
+        }
+
+        int loaded;
+        if (highCompression) {
+            loaded = LZ4JNI.LZ4_setupDictHC(this.getStreamPtr(), this.dictDataBuffer, srcArray, srcBuffer, srcOff, srcLen);
+        } else {
+            loaded = LZ4JNI.LZ4_setupDict(this.getStreamPtr(), this.dictDataBuffer, srcArray, srcBuffer, srcOff, srcLen, thorough);
+        }
+        if (loaded < 0) {
+            throw new LZ4Exception("Failed to load dictionary");
+        }
+        this.dictSize = loaded;
     }
 
     @Override
@@ -245,11 +209,10 @@ final class LZ4JNIDictionary extends LZ4Dictionary {
 
     @Override
     long getStreamPtr() {
-        long ptr = streamPtr;
-        if (ptr == 0) {
+        if (isClosed()) {
             throw new IllegalStateException("Dictionary has been closed");
         }
-        return ptr;
+        return streamPtr;
     }
 
     @Override

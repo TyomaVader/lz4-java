@@ -64,26 +64,41 @@ enum LZ4JNI {
    * @param dictBuffer dictionary data
    * @param dictOff offset in dictArray
    * @param dictSize size of dictionary
+   * @param thorough if true, uses more CPU to improve compression ratio
    * @return loaded dictionary size in bytes (max 64KB)
    */
-  static native int LZ4_loadDict(long streamPtr, byte[] dictArray, ByteBuffer dictBuffer, int dictOff, int dictSize);
+  static native int LZ4_loadDict(long streamPtr, byte[] dictArray, ByteBuffer dictBuffer, int dictOff, int dictSize, boolean thorough);
 
   /**
-   * Same as LZ4_loadDict but uses more CPU to reference dictionary content
-   * more thoroughly, resulting in better compression ratio. Recommended when
-   * the dictionary will be reused across multiple compression sessions.
-   * (LZ4 1.10.0+)
+   * Replaces the dictionary with data copied from src and loads it into the stream.
+   * <p>
+   * Shortcut for:
+   * <pre>
+   *    dictBuffer.clear();
+   *    dictBuffer.put(srcArray, srcOff, srcLen);
+   *    LZ4_loadDict(streamPtr, dictBuffer, 0, srcLen);
+   * </pre>
+   *
+   * @param streamPtr pointer to LZ4_stream_t
+   * @param dictBuffer buffer for dictionary data,
+   *                   which must remain valid during compression
+   * @param srcArray source data for dictionary
+   * @param srcBuffer source data for dictionary
+   * @param srcOff offset in source
+   * @param srcLen length of source to use as dictionary
+   * @param thorough if true, uses more CPU to improve compression ratio
+   * @return loaded dictionary size in bytes (max 64KB)
    */
-  static native int LZ4_loadDictSlow(long streamPtr, byte[] dictArray, ByteBuffer dictBuffer, int dictOff, int dictSize);
+  static native int LZ4_setupDict(long streamPtr, ByteBuffer dictBuffer, byte[] srcArray, ByteBuffer srcBuffer, int srcOff, int srcLen, boolean thorough);
 
   /**
    * Attaches a pre-loaded dictionary stream to a working stream.
    * This enables efficient dictionary reuse without copying.
-   * 
+   * <p>
    * The dictionary stream must have been prepared with LZ4_loadDict[Slow].
    * The dictionary stream is READ-ONLY and can be safely shared across threads.
    * Pass 0 for dictStreamPtr to detach any existing dictionary.
-   * 
+   * <p>
    * The dictionary remains attached only for the first compression call,
    * then it is automatically cleared.
    * (LZ4 1.10.0+)
@@ -119,6 +134,34 @@ enum LZ4JNI {
                                                byte[] destArray, ByteBuffer destBuffer, int destOff, int maxDestLen, int acceleration);
 
   /**
+   * Resets the stream, attaches dictionary to it, and compresses in one call.
+   * <p>
+   * Equivalent to:
+   * <pre>
+   *   LZ4_resetStream_fast(streamPtr);
+   *   LZ4_attach_dictionary(streamPtr, dictStreamPtr);
+   *   LZ4_compress_fast_continue(streamPtr, srcArray, srcBuffer, srcOff, srcLen,
+   *                             destArray, destBuffer, destOff, maxDestLen, acceleration);
+   * </pre>
+   *
+   * @param streamPtr pointer to the compressor's LZ4_stream_t
+   * @param dictStreamPtr pointer to the LZ4_stream_t containing the dictionary
+   * @param acceleration acceleration factor (1 = default)
+   * @param srcArray source data
+   * @param srcBuffer source data
+   * @param srcOff offset in source
+   * @param srcLen length to compress
+   * @param destArray destination buffer
+   * @param destBuffer destination buffer
+   * @param destOff offset in destination
+   * @param maxDestLen maximum bytes to write
+   * @return compressed size, or 0 on failure
+   */
+  static native int LZ4_reset_attachDict_compress(long streamPtr, long dictStreamPtr, int acceleration,
+                                                  byte[] srcArray, ByteBuffer srcBuffer, int srcOff, int srcLen,
+                                                  byte[] destArray, ByteBuffer destBuffer, int destOff, int maxDestLen);
+
+  /**
    * Creates a new LZ4 HC streaming compression context.
    * @return pointer to the allocated LZ4_streamHC_t (as long), or 0 on failure
    */
@@ -133,6 +176,27 @@ enum LZ4JNI {
    * Loads a dictionary into the HC stream.
    */
   static native int LZ4_loadDictHC(long streamPtr, byte[] dictArray, ByteBuffer dictBuffer, int dictOff, int dictSize);
+
+  /**
+   * Replaces the dictionary with data from src and loads it into the HC stream.
+   * <p>
+   * Shortcut for:
+   * <pre>
+   *    dictBuffer.clear();
+   *    dictBuffer.put(srcArray, srcOff, srcLen);
+   *    LZ4_loadDictHC(streamPtr, dictBuffer, 0, srcLen);
+   * </pre>
+   *
+   * @param streamPtr pointer to LZ4_streamHC_t
+   * @param dictBuffer buffer for dictionary data,
+   *                   which must remain valid during compression
+   * @param srcArray source data for dictionary
+   * @param srcBuffer source data for dictionary
+   * @param srcOff offset in source
+   * @param srcLen length of source to use as dictionary
+   * @return loaded dictionary size in bytes (max 64KB)
+   */
+  static native int LZ4_setupDictHC(long streamPtr, ByteBuffer dictBuffer, byte[] srcArray, ByteBuffer srcBuffer, int srcOff, int srcLen);
 
   /**
    * Attaches a pre-loaded HC dictionary stream to a working HC stream.
@@ -151,5 +215,33 @@ enum LZ4JNI {
    */
   static native int LZ4_compress_HC_continue(long streamPtr, byte[] srcArray, ByteBuffer srcBuffer, int srcOff, int srcLen,
                                              byte[] destArray, ByteBuffer destBuffer, int destOff, int maxDestLen);
+
+  /**
+   * Resets the HC stream, attaches dictionary to it, and compresses in one call.
+   * <p>
+   * Equivalent to:
+   * <pre>
+   *   LZ4_resetStreamHC_fast(streamPtr, compressionLevel);
+   *   LZ4_attach_HC_dictionary(streamPtr, dictStreamPtr);
+   *   LZ4_compress_HC_continue(streamPtr, srcArray, srcBuffer, srcOff, srcLen,
+   *                           destArray, destBuffer, destOff, maxDestLen);
+   * </pre>
+   *
+   * @param streamPtr pointer to the compressor's LZ4_streamHC_t
+   * @param dictStreamPtr pointer to the LZ4_streamHC_t containing the dictionary
+   * @param compressionLevel compression level to use
+   * @param srcArray source data
+   * @param srcBuffer source data
+   * @param srcOff offset in source
+   * @param srcLen length to compress
+   * @param destArray destination buffer
+   * @param destBuffer destination buffer
+   * @param destOff offset in destination
+   * @param maxDestLen maximum bytes to write
+   * @return compressed size, or 0 on failure
+   */
+  static native int LZ4_reset_attachDictHC_compress(long streamPtr, long dictStreamPtr, int compressionLevel,
+                                                    byte[] srcArray, ByteBuffer srcBuffer, int srcOff, int srcLen,
+                                                    byte[] destArray, ByteBuffer destBuffer, int destOff, int maxDestLen);
 }
 

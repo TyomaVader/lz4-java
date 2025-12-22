@@ -186,6 +186,24 @@ public abstract class LZ4StreamingCompressor implements AutoCloseable {
         return dest;
     }
 
+
+    /**
+     * Resets the compressor, attaches the given dictionary, and compresses the data.
+     *
+     * @param dictionary the dictionary to attach, or null to detach
+     * @param src source data
+     * @param srcOff offset in source
+     * @param srcLen length to compress
+     * @param dest destination buffer
+     * @param destOff offset in destination
+     * @param maxDestLen maximum bytes to write
+     * @return compressed size
+     * @throws LZ4Exception if compression fails
+     */
+    public abstract int resetAttachDictCompress(LZ4Dictionary dictionary,
+                                                byte[] src, int srcOff, int srcLen,
+                                                byte[] dest, int destOff, int maxDestLen);
+
     /**
      * Convenience method that allocates and returns compressed data.
      */
@@ -272,7 +290,8 @@ final class LZ4JNIStreamingCompressor extends LZ4StreamingCompressor {
     }
 
     @Override
-    public int compress(ByteBuffer src, int srcOff, int srcLen, ByteBuffer dest, int destOff, int maxDestLen) {
+    public int compress(ByteBuffer src, int srcOff, int srcLen,
+                        ByteBuffer dest, int destOff, int maxDestLen) {
         checkNotClosed();
         ByteBufferUtils.checkRange(src, srcOff, srcLen);
         ByteBufferUtils.checkRange(dest, destOff, maxDestLen);
@@ -280,6 +299,26 @@ final class LZ4JNIStreamingCompressor extends LZ4StreamingCompressor {
         int result = LZ4JNI.LZ4_compress_fast_continue(
             streamPtr, null, src, srcOff, srcLen,
             null, dest, destOff, maxDestLen, acceleration);
+
+        if (result <= 0) {
+            throw new LZ4Exception("Compression failed");
+        }
+        return result;
+    }
+
+    @Override
+    public int resetAttachDictCompress(LZ4Dictionary dictionary,
+                                        byte[] src, int srcOff, int srcLen,
+                                        byte[] dest, int destOff, int maxDestLen) {
+        checkNotClosed();
+        checkRange(src, srcOff, srcLen);
+        checkRange(dest, destOff, maxDestLen);
+
+        long dictPtr = (dictionary == null) ? 0 : dictionary.getStreamPtr();
+
+        int result = LZ4JNI.LZ4_reset_attachDict_compress(streamPtr, dictPtr, acceleration,
+            src, null, srcOff, srcLen,
+            dest, null, destOff, maxDestLen);
 
         if (result <= 0) {
             throw new LZ4Exception("Compression failed");
@@ -387,6 +426,27 @@ final class LZ4JNIStreamingCompressorHC extends LZ4StreamingCompressor {
         if (result <= 0) {
             throw new LZ4Exception("Compression failed");
         }
+        return result;
+    }
+
+    @Override
+    public int resetAttachDictCompress(LZ4Dictionary dictionary,
+                                       byte[] src, int srcOff, int srcLen,
+                                       byte[] dest, int destOff, int maxDestLen) {
+        checkNotClosed();
+        checkRange(src, srcOff, srcLen);
+        checkRange(dest, destOff, maxDestLen);
+
+        long dictPtr = (dictionary == null) ? 0 : dictionary.getStreamPtr();
+
+        int result = LZ4JNI.LZ4_reset_attachDictHC_compress(streamPtr, dictPtr, compressionLevel,
+            src, null, srcOff, srcLen,
+            dest, null, destOff, maxDestLen);
+
+        if (result <= 0) {
+            throw new LZ4Exception("Compression failed");
+        }
+
         return result;
     }
 
