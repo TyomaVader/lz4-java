@@ -361,6 +361,156 @@ public final class LZ4Factory {
   }
 
   /**
+   * Creates a new {@link LZ4JNIFastDictionary} with default buffer size (64KB).
+   * <p>
+   * Dictionaries are only available for the native instance. The dictionary
+   * can be safely shared across multiple threads.
+   * </p>
+   *
+   * @return a new fast dictionary
+   * @throws UnsupportedOperationException if this is not the native instance
+   * @see LZ4JNIFastDictionary
+   * @see #fastStreamingCompressor()
+   */
+  public LZ4JNIFastDictionary fastDictionary() {
+    checkNativeInstance("fastDictionary");
+    return new LZ4JNIFastDictionary();
+  }
+
+  /**
+   * Creates a new {@link LZ4JNIFastDictionary} with the specified buffer size.
+   * <p>
+   * Dictionaries are only available for the native instance. The dictionary
+   * can be safely shared across multiple threads.
+   * </p>
+   *
+   * @param dictSize dictionary buffer size, must be positive and &lt;= 64KB
+   * @return a new fast dictionary
+   * @throws UnsupportedOperationException if this is not the native instance
+   * @throws IllegalArgumentException if dictSize is invalid
+   * @see LZ4JNIFastDictionary
+   * @see #fastStreamingCompressor()
+   */
+  public LZ4JNIFastDictionary fastDictionary(int dictSize) {
+    checkNativeInstance("fastDictionary");
+    return new LZ4JNIFastDictionary(dictSize);
+  }
+
+  /**
+   * Creates a new {@link LZ4JNIHCDictionary} with default buffer size (64KB).
+   * <p>
+   * Dictionaries are only available for the native instance. The dictionary
+   * can be safely shared across multiple threads.
+   * </p>
+   *
+   * @return a new high compression dictionary
+   * @throws UnsupportedOperationException if this is not the native instance
+   * @see LZ4JNIHCDictionary
+   * @see #highStreamingCompressor()
+   */
+  public LZ4JNIHCDictionary highDictionary() {
+    checkNativeInstance("highDictionary");
+    return new LZ4JNIHCDictionary();
+  }
+
+  /**
+   * Creates a new {@link LZ4JNIHCDictionary} with the specified buffer size.
+   * <p>
+   * Dictionaries are only available for the native instance. The dictionary
+   * can be safely shared across multiple threads.
+   * </p>
+   *
+   * @param dictSize dictionary buffer size, must be positive and &lt;= 64KB
+   * @return a new high compression dictionary
+   * @throws UnsupportedOperationException if this is not the native instance
+   * @throws IllegalArgumentException if dictSize is invalid
+   * @see LZ4JNIHCDictionary
+   * @see #highStreamingCompressor()
+   */
+  public LZ4JNIHCDictionary highDictionary(int dictSize) {
+    checkNativeInstance("highDictionary");
+    return new LZ4JNIHCDictionary(dictSize);
+  }
+
+  /**
+   * Creates a new {@link LZ4JNIFastStreamingCompressor} with default acceleration (1).
+   * <p>
+   * Streaming compressors are only available for the native instance.
+   * Each compressor instance must be used by only one thread at a time.
+   * </p>
+   *
+   * @return a new fast streaming compressor
+   * @throws UnsupportedOperationException if this is not the native instance
+   * @see LZ4JNIFastStreamingCompressor
+   * @see #fastDictionary()
+   */
+  public LZ4JNIFastStreamingCompressor fastStreamingCompressor() {
+    checkNativeInstance("fastStreamingCompressor");
+    return new LZ4JNIFastStreamingCompressor();
+  }
+
+  /**
+   * Creates a new {@link LZ4JNIFastStreamingCompressor} with the specified acceleration.
+   * <p>
+   * Streaming compressors are only available for the native instance.
+   * Each compressor instance must be used by only one thread at a time.
+   * </p>
+   *
+   * @param acceleration acceleration factor (1 = default, higher = faster but less compression)
+   * @return a new fast streaming compressor
+   * @throws UnsupportedOperationException if this is not the native instance
+   * @see LZ4JNIFastStreamingCompressor
+   * @see #fastDictionary()
+   */
+  public LZ4JNIFastStreamingCompressor fastStreamingCompressor(int acceleration) {
+    checkNativeInstance("fastStreamingCompressor");
+    return new LZ4JNIFastStreamingCompressor(acceleration);
+  }
+
+  /**
+   * Creates a new {@link LZ4JNIHCStreamingCompressor} with default compression level.
+   * <p>
+   * Streaming compressors are only available for the native instance.
+   * Each compressor instance must be used by only one thread at a time.
+   * </p>
+   *
+   * @return a new high compression streaming compressor
+   * @throws UnsupportedOperationException if this is not the native instance
+   * @see LZ4JNIHCStreamingCompressor
+   * @see #highDictionary()
+   */
+  public LZ4JNIHCStreamingCompressor highStreamingCompressor() {
+    checkNativeInstance("highStreamingCompressor");
+    return new LZ4JNIHCStreamingCompressor();
+  }
+
+  /**
+   * Creates a new {@link LZ4JNIHCStreamingCompressor} with the specified compression level.
+   * <p>
+   * Streaming compressors are only available for the native instance.
+   * Each compressor instance must be used by only one thread at a time.
+   * </p>
+   *
+   * @param compressionLevel compression level (1-17, higher = better compression)
+   * @return a new high compression streaming compressor
+   * @throws UnsupportedOperationException if this is not the native instance
+   * @see LZ4JNIHCStreamingCompressor
+   * @see #highDictionary()
+   */
+  public LZ4JNIHCStreamingCompressor highStreamingCompressor(int compressionLevel) {
+    checkNativeInstance("highStreamingCompressor");
+    return new LZ4JNIHCStreamingCompressor(compressionLevel);
+  }
+
+  private void checkNativeInstance(String methodName) {
+    if (!"JNI".equals(impl)) {
+      throw new UnsupportedOperationException(
+          methodName + "() is only available for the native instance. " +
+          "Use LZ4Factory.nativeInstance() to get a factory that supports streaming compression.");
+    }
+  }
+
+  /**
    * Prints the fastest instance.
    *
    * @param args no argument required

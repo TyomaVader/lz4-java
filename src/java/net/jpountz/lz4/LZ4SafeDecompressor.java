@@ -50,8 +50,11 @@ public abstract class LZ4SafeDecompressor implements LZ4UnknownSizeDecompressor 
    * and returns the number of decompressed bytes written into <code>dest</code>.
    * <p>
    * This method is used to decompress data that was compressed with a dictionary
-   * using {@link LZ4StreamingCompressor#attachDictionary(LZ4Dictionary)}.
+   * using {@link LZ4StreamingCompressor}.
    * The dictionary must be the same one used during compression.
+   * </p>
+   * <p>
+   * Dictionary decompression is only supported by the native instance.
    * </p>
    *
    * @param src the compressed data
@@ -65,8 +68,13 @@ public abstract class LZ4SafeDecompressor implements LZ4UnknownSizeDecompressor 
    * @param dictSize the size of the dictionary
    * @return the original input size
    * @throws LZ4Exception if maxDestLen is too small or decompression fails
+   * @throws UnsupportedOperationException if this is not the native instance
    */
-  public abstract int decompress(byte[] src, int srcOff, int srcLen, byte[] dest, int destOff, int maxDestLen, byte[] dict, int dictOff, int dictSize);
+  public int decompress(byte[] src, int srcOff, int srcLen, byte[] dest, int destOff, int maxDestLen, byte[] dict, int dictOff, int dictSize) {
+    throw new UnsupportedOperationException(
+        "Dictionary decompression requires native instance. " +
+        "Use LZ4Factory.nativeInstance().safeDecompressor()");
+  }
 
   /**
    * Decompresses <code>src[srcOff:srcOff+srcLen]</code> into
@@ -74,8 +82,11 @@ public abstract class LZ4SafeDecompressor implements LZ4UnknownSizeDecompressor 
    * and returns the number of decompressed bytes written into <code>dest</code>.
    * <p>
    * This method is used to decompress data that was compressed with a dictionary
-   * using {@link LZ4StreamingCompressor#attachDictionary(LZ4Dictionary)}.
+   * using {@link LZ4StreamingCompressor}.
    * The dictionary must be the same one used during compression.
+   * </p>
+   * <p>
+   * Dictionary decompression is only supported by the native instance.
    * </p>
    *
    * @param src the compressed data
@@ -89,8 +100,13 @@ public abstract class LZ4SafeDecompressor implements LZ4UnknownSizeDecompressor 
    * @param dictSize the size of the dictionary
    * @return the original input size
    * @throws LZ4Exception if maxDestLen is too small or decompression fails
+   * @throws UnsupportedOperationException if this is not the native instance
    */
-  public abstract int decompress(ByteBuffer src, int srcOff, int srcLen, ByteBuffer dest, int destOff, int maxDestLen, ByteBuffer dict, int dictOff, int dictSize);
+  public int decompress(ByteBuffer src, int srcOff, int srcLen, ByteBuffer dest, int destOff, int maxDestLen, ByteBuffer dict, int dictOff, int dictSize) {
+    throw new UnsupportedOperationException(
+        "Dictionary decompression requires native instance. " +
+        "Use LZ4Factory.nativeInstance().safeDecompressor()");
+  }
 
   /**
    * Decompresses <code>src[srcOff:srcOff+srcLen]</code> into

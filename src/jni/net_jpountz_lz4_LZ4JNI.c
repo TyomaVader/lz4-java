@@ -17,9 +17,13 @@
 #include "lz4.h"
 #include "lz4hc.h"
 #include <jni.h>
-#include <string.h>
+#include <string.h> // memcpy()
+#include <stdint.h> // SIZE_MAX
+#include <stdio.h> // printf()
 
 static jclass OutOfMemoryError;
+static jclass IllegalArgumentException;
+static jclass IllegalStateException;
 
 /*
  * Class:     net_jpountz_lz4_LZ4
@@ -29,10 +33,41 @@ static jclass OutOfMemoryError;
 JNIEXPORT void JNICALL Java_net_jpountz_lz4_LZ4JNI_init
   (JNIEnv *env, jclass cls) {
   OutOfMemoryError = (*env)->FindClass(env, "java/lang/OutOfMemoryError");
+  IllegalArgumentException = (*env)->FindClass(env, "java/lang/IllegalArgumentException");
+  IllegalStateException = (*env)->FindClass(env, "java/lang/IllegalStateException");
 }
 
 static void throw_OOM(JNIEnv *env) {
   (*env)->ThrowNew(env, OutOfMemoryError, "Out of memory");
+}
+
+static void throw_IAE(JNIEnv *env, const char* msg) {
+  (*env)->ThrowNew(env, IllegalArgumentException, msg);
+}
+
+static void throw_ISE(JNIEnv *env, const char* msg) {
+  (*env)->ThrowNew(env, IllegalStateException, msg);
+}
+
+/**
+ * Validates that offset and length are non-negative and don't overflow.
+ * Returns 1 if valid, 0 if invalid (and throws exception).
+ */
+static int validate_range(JNIEnv *env, jint off, jint len) {
+  if (off < 0) {
+    throw_IAE(env, "Offset must be non-negative");
+    return 0;
+  }
+  if (len < 0) {
+    throw_IAE(env, "Length must be non-negative");
+    return 0;
+  }
+  // Check for integer overflow: off + len
+  if (len > 0 && off > INT32_MAX - len) {
+    throw_IAE(env, "Offset + length would overflow");
+    return 0;
+  }
+  return 1;
 }
 
 /*
@@ -287,6 +322,14 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1decompress_1safe_1usingD
     dict = NULL;
   }
 
+  // TODO: Remove this after testing.
+  // If dst == dictStart + dictSize, the performance is substantially increased.
+  if (out + destOff == (dict != NULL ? dict + dictOff : NULL) + dictSize) {
+    printf("Decompression increased performance requirement is met.\n");
+  } else {
+    printf("Decompression increased performance requirement is not met.\n");
+  }
+
   decompressed = LZ4_decompress_safe_usingDict(
       in + srcOff, out + destOff, srcLen, maxDestLen,
       dict != NULL ? dict + dictOff : NULL, dictSize);
@@ -343,6 +386,9 @@ JNIEXPORT jlong JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1createStream
 JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1freeStream
   (JNIEnv *env, jclass cls, jlong streamPtr) {
 
+  if (streamPtr == 0) {
+    return 0; 
+  }
   LZ4_stream_t* stream = (LZ4_stream_t*)(intptr_t)streamPtr;
   return LZ4_freeStream(stream);
 
@@ -351,14 +397,23 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1freeStream
 /*
  * Class:     net_jpountz_lz4_LZ4JNI
  * Method:    LZ4_loadDict
- * Signature: (J[BII)I
+ * Signature: (J[BLjava/nio/ByteBuffer;IIZ)I
  * 
  * Loads a dictionary into the stream. The dictionary must remain
  * available during compression. Only the last 64KB are used.
  * After loading, the stream can be used as a shared dictionary.
+ * If thorough is true, uses LZ4_loadDictSlow for better compression ratio.
  */
 JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1loadDict
-  (JNIEnv *env, jclass cls, jlong streamPtr, jbyteArray dictArray, jobject dictBuffer, jint dictOff, jint dictSize) {
+  (JNIEnv *env, jclass cls, jlong streamPtr, jbyteArray dictArray, jobject dictBuffer, jint dictOff, jint dictSize, jboolean thorough) {
+
+  if (streamPtr == 0) {
+    throw_ISE(env, "Stream has been closed");
+    return 0;
+  }
+  if (!validate_range(env, dictOff, dictSize)) {
+    return 0;
+  }
 
   LZ4_stream_t* stream = (LZ4_stream_t*)(intptr_t)streamPtr;
   char* dict;
@@ -373,7 +428,12 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1loadDict
     return 0;
   }
 
-  jint result = LZ4_loadDict(stream, dict + dictOff, dictSize);
+  jint result;
+  if (thorough) {
+    result = LZ4_loadDictSlow(stream, dict + dictOff, dictSize);
+  } else {
+    result = LZ4_loadDict(stream, dict + dictOff, dictSize);
+  }
 
   if (dictArray != NULL) {
     (*env)->ReleasePrimitiveArrayCritical(env, dictArray, dict, 0);
@@ -385,57 +445,43 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1loadDict
 
 /*
  * Class:     net_jpountz_lz4_LZ4JNI
- * Method:    LZ4_loadDictSlow
- * Signature: (J[BII)I
- * 
- * Same as LZ4_loadDict but uses more CPU to reference dictionary
- * content more thoroughly. Better compression ratio when dictionary
- * is reused across multiple sessions. (LZ4 1.10.0+)
+ * Method:    LZ4_setupDict
+ * Signature: (JLjava/nio/ByteBuffer;[BLjava/nio/ByteBuffer;IIZ)I
+ *
+ * Replaces the dictionary with data copied from src and loads it into the stream.
+ * If thorough is true, uses LZ4_loadDictSlow for better compression ratio.
+ * Shortcut for:
+ * <pre>
+ *    dictBuffer.clear();
+ *    dictBuffer.put(srcArray, srcOff, srcLen);
+ *    if (thorough) LZ4_loadDictSlow(streamPtr, dictBuffer, 0, srcLen);
+ *    else LZ4_loadDict(streamPtr, dictBuffer, 0, srcLen);
+ * </pre>
  */
-JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1loadDictSlow
-  (JNIEnv *env, jclass cls, jlong streamPtr, jbyteArray dictArray, jobject dictBuffer, jint dictOff, jint dictSize) {
+JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDict
+  (JNIEnv *env, jclass cls, jlong streamPtr, jobject dictBuffer,
+  jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen, jboolean thorough) {
 
-  LZ4_stream_t* stream = (LZ4_stream_t*)(intptr_t)streamPtr;
-  char* dict;
-  if (dictArray != NULL) {
-    dict = (char*) (*env)->GetPrimitiveArrayCritical(env, dictArray, 0);
-  } else {
-    dict = (char*) (*env)->GetDirectBufferAddress(env, dictBuffer);
+  if (streamPtr == 0) {
+    throw_ISE(env, "Stream has been closed");
+    return 0;
+  }
+  if (!validate_range(env, srcOff, srcLen)) {
+    return 0;
   }
 
+  LZ4_stream_t* stream = (LZ4_stream_t*)(intptr_t)streamPtr;
+  char* dict = (char*) (*env)->GetDirectBufferAddress(env, dictBuffer);
   if (dict == NULL) {
     throw_OOM(env);
     return 0;
   }
 
-  jint result = LZ4_loadDictSlow(stream, dict + dictOff, dictSize);
-
-  if (dictArray != NULL) {
-    (*env)->ReleasePrimitiveArrayCritical(env, dictArray, dict, 0);
+  jlong dictCapacity = (*env)->GetDirectBufferCapacity(env, dictBuffer);
+  if (dictCapacity < 0 || srcLen > dictCapacity) {
+    throw_IAE(env, "Source length exceeds dictionary buffer capacity");
+    return 0;
   }
-  return result;
-
-}
-
-/*
- * Class:     net_jpountz_lz4_LZ4JNI
- * Method:    LZ4_setupDict
- * Signature:
- *
- * Replaces the dictionary with data copied from src and loads it into the stream.
- * Shortcut for:
- * <pre>
- *    dictBuffer.clear();
- *    dictBuffer.put(srcArray, srcOff, srcLen);
- *    LZ4_loadDict(streamPtr, dictBuffer, 0, srcLen);
- * </pre>
- */
-JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDict
-  (JNIEnv *env, jclass cls, jlong streamPtr, jobject dictBuffer,
-  jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen) {
-
-  LZ4_stream_t* stream = (LZ4_stream_t*)(intptr_t)streamPtr;
-  char* dict = (char*) (*env)->GetDirectBufferAddress(env, dictBuffer);
 
   char* src;
   if (srcArray != NULL) {
@@ -444,10 +490,7 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDict
     src = (char*) (*env)->GetDirectBufferAddress(env, srcBuffer);
   }
 
-  if (dict == NULL || src == NULL) {
-    if (srcArray != NULL) {
-      (*env)->ReleasePrimitiveArrayCritical(env, srcArray, src, 0);
-    }
+  if (src == NULL) {
     throw_OOM(env);
     return 0;
   }
@@ -457,7 +500,12 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDict
     (*env)->ReleasePrimitiveArrayCritical(env, srcArray, src, 0);
   }
 
-  jint result = LZ4_loadDict(stream, dict, srcLen);
+  jint result;
+  if (thorough) {
+    result = LZ4_loadDictSlow(stream, dict, srcLen);
+  } else {
+    result = LZ4_loadDict(stream, dict, srcLen);
+  }
   return result;
 
 }
@@ -476,8 +524,14 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDict
 JNIEXPORT void JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1attach_1dictionary
   (JNIEnv *env, jclass cls, jlong workingStreamPtr, jlong dictStreamPtr) {
 
+  if (workingStreamPtr == 0) {
+    throw_ISE(env, "Compressor stream has been closed");
+    return;
+  }
+
   LZ4_stream_t* workingStream = (LZ4_stream_t*)(intptr_t)workingStreamPtr;
-  const LZ4_stream_t* dictStream = (const LZ4_stream_t*)(intptr_t)dictStreamPtr;
+  // dictStreamPtr can be 0 to detach dictionary
+  const LZ4_stream_t* dictStream = (dictStreamPtr == 0) ? NULL : (const LZ4_stream_t*)(intptr_t)dictStreamPtr;
   
   LZ4_attach_dictionary(workingStream, dictStream);
 
@@ -493,6 +547,11 @@ JNIEXPORT void JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1attach_1dictionary
  */
 JNIEXPORT void JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1resetStream_1fast
   (JNIEnv *env, jclass cls, jlong streamPtr) {
+
+  if (streamPtr == 0) {
+    throw_ISE(env, "Stream has been closed");
+    return;
+  }
 
   LZ4_stream_t* stream = (LZ4_stream_t*)(intptr_t)streamPtr;
   LZ4_resetStream_fast(stream);
@@ -511,6 +570,14 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1compress_1fast_1continue
   (JNIEnv *env, jclass cls, jlong streamPtr,
   jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen,
   jbyteArray destArray, jobject destBuffer, jint destOff, jint maxDestLen, jint acceleration) {
+
+  if (streamPtr == 0) {
+    throw_ISE(env, "Stream has been closed");
+    return 0;
+  }
+  if (!validate_range(env, srcOff, srcLen) || !validate_range(env, destOff, maxDestLen)) {
+    return 0;
+  }
 
   LZ4_stream_t* stream = (LZ4_stream_t*)(intptr_t)streamPtr;
   char* in;
@@ -567,10 +634,19 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1reset_1attachDict_1compr
   jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen,
   jbyteArray destArray, jobject destBuffer, jint destOff, jint maxDestLen) {
 
+  if (streamPtr == 0) {
+    throw_ISE(env, "Compressor stream has been closed");
+    return 0;
+  }
+  if (!validate_range(env, srcOff, srcLen) || !validate_range(env, destOff, maxDestLen)) {
+    return 0;
+  }
+
   LZ4_stream_t* localStream = (LZ4_stream_t*)(intptr_t)streamPtr;
   LZ4_resetStream_fast(localStream);
 
-  const LZ4_stream_t* globalStream = (const LZ4_stream_t*)(intptr_t)dictStreamPtr;
+  // dictStreamPtr can be 0 to compress without dictionary
+  const LZ4_stream_t* globalStream = (dictStreamPtr == 0) ? NULL : (const LZ4_stream_t*)(intptr_t)dictStreamPtr;
   LZ4_attach_dictionary(localStream, globalStream);
 
   char* in;
@@ -640,6 +716,9 @@ JNIEXPORT jlong JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1createStreamHC
 JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1freeStreamHC
   (JNIEnv *env, jclass cls, jlong streamPtr) {
 
+  if (streamPtr == 0) {
+    return 0;
+  }
   LZ4_streamHC_t* stream = (LZ4_streamHC_t*)(intptr_t)streamPtr;
   return LZ4_freeStreamHC(stream);
 
@@ -654,6 +733,14 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1freeStreamHC
  */
 JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1loadDictHC
   (JNIEnv *env, jclass cls, jlong streamPtr, jbyteArray dictArray, jobject dictBuffer, jint dictOff, jint dictSize) {
+
+  if (streamPtr == 0) {
+    throw_ISE(env, "Stream has been closed");
+    return 0;
+  }
+  if (!validate_range(env, dictOff, dictSize)) {
+    return 0;
+  }
 
   LZ4_streamHC_t* stream = (LZ4_streamHC_t*)(intptr_t)streamPtr;
   char* dict;
@@ -686,8 +773,26 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDictHC
   (JNIEnv *env, jclass cls, jlong streamPtr, jobject dictBuffer,
   jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen) {
 
+  if (streamPtr == 0) {
+    throw_ISE(env, "Stream has been closed");
+    return 0;
+  }
+  if (!validate_range(env, srcOff, srcLen)) {
+    return 0;
+  }
+
   LZ4_streamHC_t* stream = (LZ4_streamHC_t*)(intptr_t)streamPtr;
   char* dict = (char*) (*env)->GetDirectBufferAddress(env, dictBuffer);
+  if (dict == NULL) {
+    throw_OOM(env);
+    return 0;
+  }
+
+  jlong dictCapacity = (*env)->GetDirectBufferCapacity(env, dictBuffer);
+  if (dictCapacity < 0 || srcLen > dictCapacity) {
+    throw_IAE(env, "Source length exceeds dictionary buffer capacity");
+    return 0;
+  }
 
   char* src;
   if (srcArray != NULL) {
@@ -696,10 +801,7 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDictHC
     src = (char*) (*env)->GetDirectBufferAddress(env, srcBuffer);
   }
 
-  if (dict == NULL || src == NULL) {
-    if (srcArray != NULL) {
-      (*env)->ReleasePrimitiveArrayCritical(env, srcArray, src, 0);
-    }
+  if (src == NULL) {
     throw_OOM(env);
     return 0;
   }
@@ -727,8 +829,14 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1setupDictHC
 JNIEXPORT void JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1attach_1HC_1dictionary
   (JNIEnv *env, jclass cls, jlong workingStreamPtr, jlong dictStreamPtr) {
 
+  if (workingStreamPtr == 0) {
+    throw_ISE(env, "Compressor stream has been closed");
+    return;
+  }
+
   LZ4_streamHC_t* workingStream = (LZ4_streamHC_t*)(intptr_t)workingStreamPtr;
-  const LZ4_streamHC_t* dictStream = (const LZ4_streamHC_t*)(intptr_t)dictStreamPtr;
+  // dictStreamPtr can be 0 to detach dictionary
+  const LZ4_streamHC_t* dictStream = (dictStreamPtr == 0) ? NULL : (const LZ4_streamHC_t*)(intptr_t)dictStreamPtr;
   
   LZ4_attach_HC_dictionary(workingStream, dictStream);
 
@@ -743,6 +851,11 @@ JNIEXPORT void JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1attach_1HC_1dictionary
  */
 JNIEXPORT void JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1resetStreamHC_1fast
   (JNIEnv *env, jclass cls, jlong streamPtr, jint compressionLevel) {
+
+  if (streamPtr == 0) {
+    throw_ISE(env, "Stream has been closed");
+    return;
+  }
 
   LZ4_streamHC_t* stream = (LZ4_streamHC_t*)(intptr_t)streamPtr;
   LZ4_resetStreamHC_fast(stream, compressionLevel);
@@ -760,6 +873,14 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1compress_1HC_1continue
   (JNIEnv *env, jclass cls, jlong streamPtr,
   jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen,
   jbyteArray destArray, jobject destBuffer, jint destOff, jint maxDestLen) {
+
+  if (streamPtr == 0) {
+    throw_ISE(env, "Stream has been closed");
+    return 0;
+  }
+  if (!validate_range(env, srcOff, srcLen) || !validate_range(env, destOff, maxDestLen)) {
+    return 0;
+  }
 
   LZ4_streamHC_t* stream = (LZ4_streamHC_t*)(intptr_t)streamPtr;
   char* in;
@@ -809,10 +930,19 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1reset_1attachDictHC_1com
   jbyteArray srcArray, jobject srcBuffer, jint srcOff, jint srcLen,
   jbyteArray destArray, jobject destBuffer, jint destOff, jint maxDestLen) {
 
+  if (streamPtr == 0) {
+    throw_ISE(env, "Compressor stream has been closed");
+    return 0;
+  }
+  if (!validate_range(env, srcOff, srcLen) || !validate_range(env, destOff, maxDestLen)) {
+    return 0;
+  }
+
   LZ4_streamHC_t* localStream = (LZ4_streamHC_t*)(intptr_t)streamPtr;
   LZ4_resetStreamHC_fast(localStream, compressionLevel);
 
-  const LZ4_streamHC_t* globalStream = (const LZ4_streamHC_t*)(intptr_t)dictStreamPtr;
+  // dictStreamPtr can be 0 to compress without dictionary
+  const LZ4_streamHC_t* globalStream = (dictStreamPtr == 0) ? NULL : (const LZ4_streamHC_t*)(intptr_t)dictStreamPtr;
   LZ4_attach_HC_dictionary(localStream, globalStream);
 
   char* in;
