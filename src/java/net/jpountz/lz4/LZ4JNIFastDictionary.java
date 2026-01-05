@@ -17,9 +17,10 @@ package net.jpountz.lz4;
  */
 
 import net.jpountz.util.ByteBufferUtils;
+import net.jpountz.util.Cleanable;
+import net.jpountz.util.ResourceCleanerFactory;
 import net.jpountz.util.SafeUtils;
 
-import java.lang.ref.Cleaner;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -46,164 +47,162 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class LZ4JNIFastDictionary extends LZ4Dictionary {
 
-    private static final Cleaner CLEANER = Cleaner.create();
+  private final AtomicLong streamPtr;
+  private final ByteBuffer dictDataBuffer;
+  private final Cleanable cleanable;
 
-    /**
-     * Weak reference cleanup action - must not reference the outer class.
-     */
-    private static class StreamCleaner implements Runnable {
-        private final AtomicLong streamPtr;
+  /**
+   * Creates a new fast dictionary with default buffer size (64KB).
+   * Package-private: use {@link LZ4Factory#fastDictionary()}.
+   */
+  LZ4JNIFastDictionary() {
+    this(DEFAULT_DICT_SIZE);
+  }
 
-        StreamCleaner(AtomicLong streamPtr) {
-            this.streamPtr = streamPtr;
-        }
+  /**
+   * Creates a new fast dictionary with the specified buffer size.
+   * Package-private: use {@link LZ4Factory#fastDictionary(int)}.
+   *
+   * @param dictSize dictionary buffer size, must be positive and <= 64KB
+   */
+  LZ4JNIFastDictionary(int dictSize) {
+    checkDictSize(dictSize);
+    long ptr = LZ4JNI.LZ4_createStream();
+    if (ptr == 0) {
+      throw new LZ4Exception("Failed to create stream");
+    }
+    this.streamPtr = new AtomicLong(ptr);
+    this.dictDataBuffer = ByteBuffer.allocateDirect(dictSize);
+    this.cleanable = ResourceCleanerFactory.getCleaner().register(this, new StreamCleaner(this.streamPtr));
+  }
 
-        @Override
-        public void run() {
-            long ptr = streamPtr.getAndSet(0);
-            if (ptr != 0) {
-                LZ4JNI.LZ4_freeStream(ptr);
-            }
-        }
+  /**
+   * Loads dictionary data from source array.
+   * Uses fast loading mode (equivalent to {@code load(src, srcOff, srcLen, false)}).
+   *
+   * @param src    source array
+   * @param srcOff offset in source
+   * @param srcLen length of source, must not exceed dictionary buffer capacity
+   */
+  @Override
+  public void load(byte[] src, int srcOff, int srcLen) {
+    load(src, srcOff, srcLen, false);
+  }
+
+  /**
+   * Loads dictionary data from source buffer.
+   * Uses fast loading mode (equivalent to {@code load(src, srcOff, srcLen, false)}).
+   *
+   * @param src    source buffer, must be direct or backed by an array
+   * @param srcOff offset in source
+   * @param srcLen length of source, must not exceed dictionary buffer capacity
+   */
+  @Override
+  public void load(ByteBuffer src, int srcOff, int srcLen) {
+    load(src, srcOff, srcLen, false);
+  }
+
+  /**
+   * Loads dictionary data from source array with optional thorough mode.
+   * <p>
+   * When {@code thorough} is true, uses more CPU to reference dictionary
+   * content more thoroughly. This provides better compression ratio when
+   * the dictionary is reused across multiple compression sessions.
+   * </p>
+   *
+   * @param src      source array
+   * @param srcOff   offset in source
+   * @param srcLen   length of source, must not exceed dictionary buffer capacity
+   * @param thorough if true, uses more CPU for better compression ratio
+   */
+  public void load(byte[] src, int srcOff, int srcLen, boolean thorough) {
+    SafeUtils.checkRange(src, srcOff, srcLen);
+    loadInternal(src, null, srcOff, srcLen, thorough);
+  }
+
+  /**
+   * Loads dictionary data from source buffer with optional thorough mode.
+   * <p>
+   * When {@code thorough} is true, uses more CPU to reference dictionary
+   * content more thoroughly. This provides better compression ratio when
+   * the dictionary is reused across multiple compression sessions.
+   * </p>
+   *
+   * @param src      source buffer, must be direct or backed by an array
+   * @param srcOff   offset in source
+   * @param srcLen   length of source, must not exceed dictionary buffer capacity
+   * @param thorough if true, uses more CPU for better compression ratio
+   */
+  public void load(ByteBuffer src, int srcOff, int srcLen, boolean thorough) {
+    ByteBufferUtils.checkRange(src, srcOff, srcLen);
+    loadInternal(null, src, srcOff, srcLen, thorough);
+  }
+
+  private void loadInternal(byte[] srcArray, ByteBuffer srcBuffer, int srcOff, int srcLen, boolean thorough) {
+    long ptr = streamPtr.get();
+    if (ptr == 0) {
+      throw new IllegalStateException("Dictionary has been closed");
+    }
+    if (srcLen > dictDataBuffer.capacity()) {
+      throw new IndexOutOfBoundsException("Dictionary buffer too small");
     }
 
+    if (srcBuffer != null && !srcBuffer.isDirect()) {
+      if (!srcBuffer.hasArray()) {
+        throw new IllegalArgumentException("srcBuffer must be direct or backed by an array");
+      }
+      srcArray = srcBuffer.array();
+      srcOff += srcBuffer.arrayOffset();
+      srcBuffer = null;
+    }
+
+    int loaded = LZ4JNI.LZ4_setupDict(ptr, dictDataBuffer, srcArray, srcBuffer, srcOff, srcLen, thorough);
+    if (loaded < 0) {
+      throw new LZ4Exception("Failed to load dictionary");
+    }
+  }
+
+  @Override
+  long getStreamPtr() {
+    long ptr = streamPtr.get();
+    if (ptr == 0) {
+      throw new IllegalStateException("Dictionary has been closed");
+    }
+    return ptr;
+  }
+
+  @Override
+  public boolean isClosed() {
+    return streamPtr.get() == 0;
+  }
+
+  @Override
+  public void close() {
+    cleanable.clean();
+  }
+
+  @Override
+  public String toString() {
+    return "LZ4JNIFastDictionary[closed=" + isClosed() + "]";
+  }
+
+  /**
+   * Weak reference cleanup action - must not reference the outer class.
+   */
+  private static class StreamCleaner implements Runnable {
     private final AtomicLong streamPtr;
-    private final ByteBuffer dictDataBuffer;
-    private final Cleaner.Cleanable cleanable;
 
-    /**
-     * Creates a new fast dictionary with default buffer size (64KB).
-     * Package-private: use {@link LZ4Factory#fastDictionary()}.
-     */
-    LZ4JNIFastDictionary() {
-        this(DEFAULT_DICT_SIZE);
-    }
-
-    /**
-     * Creates a new fast dictionary with the specified buffer size.
-     * Package-private: use {@link LZ4Factory#fastDictionary(int)}.
-     *
-     * @param dictSize dictionary buffer size, must be positive and <= 64KB
-     */
-    LZ4JNIFastDictionary(int dictSize) {
-        checkDictSize(dictSize);
-        long ptr = LZ4JNI.LZ4_createStream();
-        if (ptr == 0) {
-            throw new LZ4Exception("Failed to create stream");
-        }
-        this.streamPtr = new AtomicLong(ptr);
-        this.dictDataBuffer = ByteBuffer.allocateDirect(dictSize);
-        this.cleanable = CLEANER.register(this, new StreamCleaner(this.streamPtr));
-    }
-
-    /**
-     * Loads dictionary data from source array.
-     * Uses fast loading mode (equivalent to {@code load(src, srcOff, srcLen, false)}).
-     *
-     * @param src source array
-     * @param srcOff offset in source
-     * @param srcLen length of source, must not exceed dictionary buffer capacity
-     */
-    @Override
-    public void load(byte[] src, int srcOff, int srcLen) {
-        load(src, srcOff, srcLen, false);
-    }
-
-    /**
-     * Loads dictionary data from source buffer.
-     * Uses fast loading mode (equivalent to {@code load(src, srcOff, srcLen, false)}).
-     *
-     * @param src source buffer, must be direct or backed by an array
-     * @param srcOff offset in source
-     * @param srcLen length of source, must not exceed dictionary buffer capacity
-     */
-    @Override
-    public void load(ByteBuffer src, int srcOff, int srcLen) {
-        load(src, srcOff, srcLen, false);
-    }
-
-    /**
-     * Loads dictionary data from source array with optional thorough mode.
-     * <p>
-     * When {@code thorough} is true, uses more CPU to reference dictionary
-     * content more thoroughly. This provides better compression ratio when
-     * the dictionary is reused across multiple compression sessions.
-     * </p>
-     *
-     * @param src source array
-     * @param srcOff offset in source
-     * @param srcLen length of source, must not exceed dictionary buffer capacity
-     * @param thorough if true, uses more CPU for better compression ratio
-     */
-    public void load(byte[] src, int srcOff, int srcLen, boolean thorough) {
-        SafeUtils.checkRange(src, srcOff, srcLen);
-        loadInternal(src, null, srcOff, srcLen, thorough);
-    }
-
-    /**
-     * Loads dictionary data from source buffer with optional thorough mode.
-     * <p>
-     * When {@code thorough} is true, uses more CPU to reference dictionary
-     * content more thoroughly. This provides better compression ratio when
-     * the dictionary is reused across multiple compression sessions.
-     * </p>
-     *
-     * @param src source buffer, must be direct or backed by an array
-     * @param srcOff offset in source
-     * @param srcLen length of source, must not exceed dictionary buffer capacity
-     * @param thorough if true, uses more CPU for better compression ratio
-     */
-    public void load(ByteBuffer src, int srcOff, int srcLen, boolean thorough) {
-        ByteBufferUtils.checkRange(src, srcOff, srcLen);
-        loadInternal(null, src, srcOff, srcLen, thorough);
-    }
-
-    private void loadInternal(byte[] srcArray, ByteBuffer srcBuffer, int srcOff, int srcLen, boolean thorough) {
-        long ptr = streamPtr.get();
-        if (ptr == 0) {
-            throw new IllegalStateException("Dictionary has been closed");
-        }
-        if (srcLen > dictDataBuffer.capacity()) {
-            throw new IndexOutOfBoundsException("Dictionary buffer too small");
-        }
-
-        if (srcBuffer != null && !srcBuffer.isDirect()) {
-            if (!srcBuffer.hasArray()) {
-                throw new IllegalArgumentException("srcBuffer must be direct or backed by an array");
-            }
-            srcArray = srcBuffer.array();
-            srcOff += srcBuffer.arrayOffset();
-            srcBuffer = null;
-        }
-
-        int loaded = LZ4JNI.LZ4_setupDict(ptr, dictDataBuffer, srcArray, srcBuffer, srcOff, srcLen, thorough);
-        if (loaded < 0) {
-            throw new LZ4Exception("Failed to load dictionary");
-        }
+    StreamCleaner(AtomicLong streamPtr) {
+      this.streamPtr = streamPtr;
     }
 
     @Override
-    long getStreamPtr() {
-        long ptr = streamPtr.get();
-        if (ptr == 0) {
-            throw new IllegalStateException("Dictionary has been closed");
-        }
-        return ptr;
+    public void run() {
+      long ptr = streamPtr.getAndSet(0);
+      if (ptr != 0) {
+        LZ4JNI.LZ4_freeStream(ptr);
+      }
     }
-
-    @Override
-    public boolean isClosed() {
-        return streamPtr.get() == 0;
-    }
-
-    @Override
-    public void close() {
-        cleanable.clean();
-    }
-
-    @Override
-    public String toString() {
-        return "LZ4JNIFastDictionary[closed=" + isClosed() + "]";
-    }
+  }
 }
 

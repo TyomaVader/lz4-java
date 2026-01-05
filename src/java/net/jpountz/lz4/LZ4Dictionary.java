@@ -37,71 +37,75 @@ import java.nio.ByteBuffer;
  */
 public abstract class LZ4Dictionary implements AutoCloseable {
 
-    /** Maximum dictionary size (64KB). */
-    public static final int MAX_DICT_SIZE = 64 * 1024;
+  /**
+   * Maximum dictionary size (64KB).
+   */
+  public static final int MAX_DICT_SIZE = 64 << 10;
 
-    /** Default dictionary size (64KB). */
-    public static final int DEFAULT_DICT_SIZE = MAX_DICT_SIZE;
+  /**
+   * Default dictionary size (64KB).
+   */
+  public static final int DEFAULT_DICT_SIZE = MAX_DICT_SIZE;
 
-    /**
-     * Replaces the dictionary with data copied from src and loads it into the stream.
-     *
-     * @param src source array
-     * @param srcOff offset in source
-     * @param srcLen length of source, must not exceed dictionary buffer capacity
-     */
-    public abstract void load(byte[] src, int srcOff, int srcLen);
-
-    /**
-     * Replaces the dictionary with data copied from src and loads it into the stream.
-     *
-     * @param src source buffer, must be direct or backed by an array
-     * @param srcOff offset in source
-     * @param srcLen length of source, must not exceed dictionary buffer capacity
-     */
-    public abstract void load(ByteBuffer src, int srcOff, int srcLen);
-
-    /**
-     * Convenience method to load dictionary from entire array.
-     *
-     * @param src source array
-     */
-    public final void load(byte[] src) {
-        load(src, 0, src.length);
+  /**
+   * Checks that the dictionary buffer size is valid.
+   *
+   * @param dictSize the dictionary size to validate
+   * @throws IllegalArgumentException if size is invalid
+   */
+  static void checkDictSize(int dictSize) {
+    if (dictSize <= 0) {
+      throw new IllegalArgumentException("dictSize must be positive");
     }
-
-    /**
-     * Returns the native stream pointer for use by compressors.
-     * Package-private for internal use.
-     */
-    abstract long getStreamPtr();
-
-    /**
-     * Closes this dictionary and releases native resources.
-     * After closing, the dictionary cannot be used.
-     */
-    @Override
-    public abstract void close();
-
-    /**
-     * Returns true if this dictionary has been closed.
-     *
-     * @return true if this dictionary has been closed
-     */
-    public abstract boolean isClosed();
-
-    /**
-     * Checks that the dictionary buffer size is valid.
-     *
-     * @param dictSize the dictionary size to validate
-     * @throws IllegalArgumentException if size is invalid
-     */
-    static void checkDictSize(int dictSize) {
-        if (dictSize <= 0) {
-            throw new IllegalArgumentException("dictSize must be positive");
-        }
-        if (dictSize > MAX_DICT_SIZE) {
-            throw new IllegalArgumentException("dictSize must be <= " + MAX_DICT_SIZE);
-        }
+    if (dictSize > MAX_DICT_SIZE) {
+      throw new IllegalArgumentException("dictSize must be <= " + MAX_DICT_SIZE);
     }
+  }
+
+  /**
+   * Replaces the dictionary with data copied from src and loads it into the stream.
+   *
+   * @param src    source array
+   * @param srcOff offset in source
+   * @param srcLen length of source, must not exceed dictionary buffer capacity
+   */
+  public abstract void load(byte[] src, int srcOff, int srcLen);
+
+  /**
+   * Replaces the dictionary with data copied from src and loads it into the stream.
+   *
+   * @param src    source buffer, must be direct or backed by an array
+   * @param srcOff offset in source
+   * @param srcLen length of source, must not exceed dictionary buffer capacity
+   */
+  public abstract void load(ByteBuffer src, int srcOff, int srcLen);
+
+  /**
+   * Convenience method to load dictionary from entire array.
+   *
+   * @param src source array
+   */
+  public final void load(byte[] src) {
+    load(src, 0, src.length);
+  }
+
+  /**
+   * Returns the native stream pointer for use by compressors.
+   * Package-private for internal use.
+   */
+  abstract long getStreamPtr();
+
+  /**
+   * Closes this dictionary and releases native resources.
+   * After closing, the dictionary cannot be used.
+   */
+  @Override
+  public abstract void close();
+
+  /**
+   * Returns true if this dictionary has been closed.
+   *
+   * @return true if this dictionary has been closed
+   */
+  public abstract boolean isClosed();
 }

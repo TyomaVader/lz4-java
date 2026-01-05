@@ -4,3 +4,5 @@ Bundle-Version: ${version_cleanup;${ivy.version}}
 Export-Package: net.jpountz.*;version:=${version_cleanup;${packages.version}}
 -noee: true
 -removeheaders: Require-Capability
+# Support multi-release JAR structure (Java 9+ classes in META-INF/versions/9)
+-fixupmessages: "Classes found in the wrong directory";is:=ignore

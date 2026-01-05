@@ -18,8 +18,6 @@
 #include "lz4hc.h"
 #include <jni.h>
 #include <string.h> // memcpy()
-#include <stdint.h> // SIZE_MAX
-#include <stdio.h> // printf()
 
 static jclass OutOfMemoryError;
 static jclass IllegalArgumentException;
@@ -320,14 +318,6 @@ JNIEXPORT jint JNICALL Java_net_jpountz_lz4_LZ4JNI_LZ4_1decompress_1safe_1usingD
     dict = (char*) (*env)->GetDirectBufferAddress(env, dictBuffer);
   } else {
     dict = NULL;
-  }
-
-  // TODO: Remove this after testing.
-  // If dst == dictStart + dictSize, the performance is substantially increased.
-  if (out + destOff == (dict != NULL ? dict + dictOff : NULL) + dictSize) {
-    printf("Decompression increased performance requirement is met.\n");
-  } else {
-    printf("Decompression increased performance requirement is not met.\n");
   }
 
   decompressed = LZ4_decompress_safe_usingDict(
