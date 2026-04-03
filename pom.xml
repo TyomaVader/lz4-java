@@ -950,6 +950,112 @@
                 </configuration>
               </execution>
 
+              <!-- LZ4CompressorTest fast-reset compressor (array) -->
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_array</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_array</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_a9_array</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_a9_array</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_a17_array</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_a17_array</test>
+                </configuration>
+              </execution>
+
+              <!-- LZ4CompressorTest fast-reset compressor (bytebuffer) -->
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_bytebuffer</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_bytebuffer</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_a9_bytebuffer</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_a9_bytebuffer</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_a17_bytebuffer</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_fastReset_a17_bytebuffer</test>
+                </configuration>
+              </execution>
+
+              <!-- LZ4CompressorTest high fast-reset compressor (array) -->
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_array</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_array</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l1_array</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l1_array</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l9_array</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l9_array</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l17_array</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l17_array</test>
+                </configuration>
+              </execution>
+
+              <!-- LZ4CompressorTest high fast-reset compressor (bytebuffer) -->
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_bytebuffer</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_bytebuffer</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l1_bytebuffer</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l1_bytebuffer</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l9_bytebuffer</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l9_bytebuffer</test>
+                </configuration>
+              </execution>
+              <execution>
+                <id>fuzz-net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l17_bytebuffer</id>
+                <goals><goal>test</goal></goals>
+                <configuration>
+                  <test>net.jpountz.fuzz.LZ4CompressorTest#native_highFastReset_l17_bytebuffer</test>
+                </configuration>
+              </execution>
+
               <!-- XXHash32Test (array) -->
               <execution>
                 <id>fuzz-net.jpountz.fuzz.XXHash32Test#safe_array</id>

@@ -2,9 +2,7 @@ package net.jpountz.fuzz;
 
 import com.code_intelligence.jazzer.api.FuzzedDataProvider;
 import com.code_intelligence.jazzer.junit.FuzzTest;
-import net.jpountz.lz4.LZ4Compressor;
-import net.jpountz.lz4.LZ4Exception;
-import net.jpountz.lz4.LZ4Factory;
+import net.jpountz.lz4.*;
 
 import java.nio.ByteBuffer;
 
@@ -176,5 +174,107 @@ public class LZ4CompressorTest {
   @FuzzTest
   public void native_high_l17_bytebuffer(FuzzedDataProvider provider) {
     testByteBuffer(provider, LZ4Factory.nativeInsecureInstance().highCompressor(17));
+  }
+
+  // fastResetCompressor: array
+  @FuzzTest
+  public void native_fastReset_array(FuzzedDataProvider provider) {
+    try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor()) {
+      testArray(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_fastReset_a9_array(FuzzedDataProvider provider) {
+    try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor(9)) {
+      testArray(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_fastReset_a17_array(FuzzedDataProvider provider) {
+    try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor(17)) {
+      testArray(provider, compressor);
+    }
+  }
+
+  // fastResetCompressor: bytebuffer
+  @FuzzTest
+  public void native_fastReset_bytebuffer(FuzzedDataProvider provider) {
+    try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor()) {
+      testByteBuffer(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_fastReset_a9_bytebuffer(FuzzedDataProvider provider) {
+    try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor(9)) {
+      testByteBuffer(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_fastReset_a17_bytebuffer(FuzzedDataProvider provider) {
+    try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor(17)) {
+      testByteBuffer(provider, compressor);
+    }
+  }
+
+  // highFastResetCompressor: array
+  @FuzzTest
+  public void native_highFastReset_array(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor()) {
+      testArray(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_highFastReset_l1_array(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor(1)) {
+      testArray(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_highFastReset_l9_array(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor(9)) {
+      testArray(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_highFastReset_l17_array(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor(17)) {
+      testArray(provider, compressor);
+    }
+  }
+
+  // highFastResetCompressor: bytebuffer
+  @FuzzTest
+  public void native_highFastReset_bytebuffer(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor()) {
+      testByteBuffer(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_highFastReset_l1_bytebuffer(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor(1)) {
+      testByteBuffer(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_highFastReset_l9_bytebuffer(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor(9)) {
+      testByteBuffer(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_highFastReset_l17_bytebuffer(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor(17)) {
+      testByteBuffer(provider, compressor);
+    }
   }
 }
