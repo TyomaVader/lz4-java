@@ -17,6 +17,7 @@ package net.jpountz.lz4;
  */
 
 import static net.jpountz.lz4.LZ4Constants.DEFAULT_COMPRESSION_LEVEL;
+import static net.jpountz.lz4.LZ4Constants.MAX_COMPRESSION_LEVEL;
 
 import net.jpountz.util.ByteBufferUtils;
 import net.jpountz.util.SafeUtils;
@@ -76,6 +77,11 @@ public final class LZ4JNIHCFastResetCompressor extends LZ4Compressor implements 
    * @param compressionLevel compression level (1-17, higher = better compression)
    */
   LZ4JNIHCFastResetCompressor(int compressionLevel) {
+    if (compressionLevel > MAX_COMPRESSION_LEVEL) {
+      compressionLevel = MAX_COMPRESSION_LEVEL;
+    } else if (compressionLevel < 1) {
+      compressionLevel = DEFAULT_COMPRESSION_LEVEL;
+    }
     this.compressionLevel = compressionLevel;
     long ptr = LZ4JNI.LZ4_createStreamHC();
     if (ptr == 0) {

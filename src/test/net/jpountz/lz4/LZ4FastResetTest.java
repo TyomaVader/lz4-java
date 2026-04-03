@@ -66,6 +66,14 @@ public class LZ4FastResetTest extends TestCase {
     }
   }
 
+  public void testFastResetConstructorNormalization() {
+    try (LZ4JNIFastResetCompressor negativeCompressor = new LZ4JNIFastResetCompressor(-17);
+         LZ4JNIFastResetCompressor maxCompressor = new LZ4JNIFastResetCompressor(Integer.MAX_VALUE)) {
+      assertEquals(LZ4Constants.MIN_ACCELERATION, negativeCompressor.getAcceleration());
+      assertEquals(LZ4Constants.MAX_ACCELERATION, maxCompressor.getAcceleration());
+    }
+  }
+
   public void testHighFastResetCompressorLifecycleAndLevelNormalization() {
     LZ4Factory factory = LZ4Factory.nativeInstance();
     byte[] data = repeatedData();
@@ -95,6 +103,14 @@ public class LZ4FastResetTest extends TestCase {
       } catch (IllegalStateException expected) {
         // expected
       }
+    }
+  }
+
+  public void testHighFastResetConstructorNormalization() {
+    try (LZ4JNIHCFastResetCompressor lowCompressor = new LZ4JNIHCFastResetCompressor(0);
+         LZ4JNIHCFastResetCompressor highCompressor = new LZ4JNIHCFastResetCompressor(99)) {
+      assertEquals(LZ4Constants.DEFAULT_COMPRESSION_LEVEL, lowCompressor.getCompressionLevel());
+      assertEquals(LZ4Constants.MAX_COMPRESSION_LEVEL, highCompressor.getCompressionLevel());
     }
   }
 
