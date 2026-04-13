@@ -167,6 +167,70 @@ public class LZ4Test extends AbstractLZ4Test {
         testRoundTrip(tester, data, compressor, decompressor, decompressor2);
       }
     }
+    testMixedRoundTrip(data, off, len, compressor, decompressor, decompressor2);
+  }
+
+  public void testMixedRoundTrip(byte[] data, int off, int len,
+      LZ4Compressor compressor,
+      LZ4FastDecompressor decompressor,
+      LZ4SafeDecompressor decompressor2) {
+    final byte[] expected = Arrays.copyOfRange(data, off, off + len);
+    final int maxCompressedLength = compressor.maxCompressedLength(len);
+
+    final int byteBufferDestOff = randomInt(16);
+    final ByteBuffer compressedBuffer = Tester.BYTE_BUFFER.allocate(byteBufferDestOff + maxCompressedLength + 1);
+    final int compressedBufferPosition = compressedBuffer.position();
+    final int compressedBufferLen = compressor.compress(data, off, len, compressedBuffer, byteBufferDestOff, maxCompressedLength);
+    assertEquals(compressedBufferPosition, compressedBuffer.position());
+
+    ByteBuffer restoredBuffer = Tester.BYTE_BUFFER.allocate(len);
+    assertEquals(compressedBufferLen, decompressor.decompress(compressedBuffer, byteBufferDestOff, restoredBuffer, 0, len));
+    assertArrayEquals(expected, Tester.BYTE_BUFFER.copyOf(restoredBuffer, 0, len));
+
+    restoredBuffer = Tester.BYTE_BUFFER.allocate(len);
+    assertEquals(len, decompressor2.decompress(compressedBuffer, byteBufferDestOff, compressedBufferLen, restoredBuffer, 0, len));
+    assertArrayEquals(expected, Tester.BYTE_BUFFER.copyOf(restoredBuffer, 0, len));
+
+    final ByteBuffer convenienceCompressedBuffer = Tester.BYTE_BUFFER.allocate(maxCompressedLength + 8);
+    final int convenienceBufferPosition = randomInt(8);
+    convenienceCompressedBuffer.position(convenienceBufferPosition);
+    final int convenienceCompressedBufferLen = compressor.compress(expected, convenienceCompressedBuffer);
+    assertEquals(convenienceBufferPosition + convenienceCompressedBufferLen, convenienceCompressedBuffer.position());
+
+    final ByteBuffer compressedSlice = convenienceCompressedBuffer.duplicate();
+    compressedSlice.position(convenienceBufferPosition);
+    compressedSlice.limit(convenienceBufferPosition + convenienceCompressedBufferLen);
+    final ByteBuffer convenienceRestoredBuffer = Tester.BYTE_BUFFER.allocate(len);
+    decompressor.decompress(compressedSlice, convenienceRestoredBuffer);
+    assertEquals(convenienceBufferPosition + convenienceCompressedBufferLen, compressedSlice.position());
+    assertArrayEquals(expected, Tester.BYTE_BUFFER.copyOf(convenienceRestoredBuffer, 0, len));
+
+    final int byteArrayDestOff = randomInt(16);
+    final byte[] compressedArray = new byte[byteArrayDestOff + maxCompressedLength + 1];
+    final ByteBuffer srcBuffer = copyOf(data, off, len);
+    final int srcBufferPosition = srcBuffer.position();
+    final int srcBufferLimit = srcBuffer.limit();
+    final int compressedArrayLen = compressor.compress(srcBuffer, srcBufferPosition, srcBuffer.remaining(), compressedArray, byteArrayDestOff, maxCompressedLength);
+    assertEquals(srcBufferPosition, srcBuffer.position());
+    assertEquals(srcBufferLimit, srcBuffer.limit());
+
+    byte[] restoredArray = new byte[len];
+    assertEquals(compressedArrayLen, decompressor.decompress(compressedArray, byteArrayDestOff, restoredArray, 0, len));
+    assertArrayEquals(expected, restoredArray);
+
+    restoredArray = new byte[len];
+    assertEquals(len, decompressor2.decompress(compressedArray, byteArrayDestOff, compressedArrayLen, restoredArray, 0, len));
+    assertArrayEquals(expected, restoredArray);
+
+    final ByteBuffer convenienceSrcBuffer = copyOf(expected, 0, expected.length);
+    final int convenienceSrcLimit = convenienceSrcBuffer.limit();
+    final byte[] convenienceCompressedArray = new byte[maxCompressedLength];
+    final int convenienceCompressedArrayLen = compressor.compress(convenienceSrcBuffer, convenienceCompressedArray);
+    assertEquals(convenienceSrcLimit, convenienceSrcBuffer.position());
+
+    restoredArray = new byte[len];
+    assertEquals(convenienceCompressedArrayLen, decompressor.decompress(convenienceCompressedArray, 0, restoredArray, 0, len));
+    assertArrayEquals(expected, restoredArray);
   }
 
   public <T> void testRoundTrip(
@@ -335,6 +399,70 @@ public class LZ4Test extends AbstractLZ4Test {
   }
 
   @Test
+  @Repeat(iterations = 10)
+  public void testCompressorWithLengthMixedOverloads() {
+    final int off = randomInt(32);
+    final int len = randomBoolean() ? randomInt(1 << 16) : randomInt(1 << 20);
+    final byte[] data = randomArray(off + len + randomInt(32), randomIntBetween(1, 15));
+    final byte[] expected = Arrays.copyOfRange(data, off, off + len);
+    final LZ4DecompressorWithLength fastDecompressor = new LZ4DecompressorWithLength(LZ4Factory.safeInstance().fastDecompressor());
+    final LZ4DecompressorWithLength safeDecompressor = new LZ4DecompressorWithLength(LZ4Factory.safeInstance().safeDecompressor());
+
+    for (LZ4Compressor compressor : COMPRESSORS) {
+      final LZ4CompressorWithLength compressorWithLength = new LZ4CompressorWithLength(compressor);
+      final int maxCompressedLength = compressorWithLength.maxCompressedLength(len);
+
+      final ByteBuffer compressedBuffer = Tester.BYTE_BUFFER.allocate(maxCompressedLength);
+      final int compressedBufferLen = compressorWithLength.compress(data, off, len, compressedBuffer, 0, maxCompressedLength);
+
+      ByteBuffer restoredBuffer = Tester.BYTE_BUFFER.allocate(len);
+      assertEquals(compressedBufferLen, fastDecompressor.decompress(compressedBuffer, 0, restoredBuffer, 0));
+      assertArrayEquals(expected, Tester.BYTE_BUFFER.copyOf(restoredBuffer, 0, len));
+
+      restoredBuffer = Tester.BYTE_BUFFER.allocate(len);
+      assertEquals(len, safeDecompressor.decompress(compressedBuffer, 0, compressedBufferLen, restoredBuffer, 0));
+      assertArrayEquals(expected, Tester.BYTE_BUFFER.copyOf(restoredBuffer, 0, len));
+
+      final ByteBuffer convenienceCompressedBuffer = Tester.BYTE_BUFFER.allocate(maxCompressedLength + 8);
+      final int convenienceBufferPosition = randomInt(8);
+      convenienceCompressedBuffer.position(convenienceBufferPosition);
+      final int convenienceCompressedBufferLen = compressorWithLength.compress(expected, convenienceCompressedBuffer);
+      assertEquals(convenienceBufferPosition + convenienceCompressedBufferLen, convenienceCompressedBuffer.position());
+
+      ByteBuffer convenienceSlice = convenienceCompressedBuffer.duplicate();
+      convenienceSlice.position(convenienceBufferPosition);
+      convenienceSlice.limit(convenienceBufferPosition + convenienceCompressedBufferLen);
+      restoredBuffer = Tester.BYTE_BUFFER.allocate(len);
+      fastDecompressor.decompress(convenienceSlice, restoredBuffer);
+      assertArrayEquals(expected, Tester.BYTE_BUFFER.copyOf(restoredBuffer, 0, len));
+
+      final ByteBuffer srcBuffer = copyOf(data, off, len);
+      final int srcBufferPosition = srcBuffer.position();
+      final byte[] compressedArray = new byte[maxCompressedLength];
+      final int compressedArrayLen = compressorWithLength.compress(srcBuffer, srcBuffer.position(), srcBuffer.remaining(), compressedArray, 0, compressedArray.length);
+      assertEquals(srcBufferPosition, srcBuffer.position());
+
+      byte[] restoredArray = new byte[len];
+      assertEquals(compressedArrayLen, fastDecompressor.decompress(compressedArray, 0, restoredArray, 0));
+      assertArrayEquals(expected, restoredArray);
+
+      restoredArray = new byte[len];
+      assertEquals(len, safeDecompressor.decompress(compressedArray, 0, compressedArrayLen, restoredArray, 0));
+      assertArrayEquals(expected, restoredArray);
+
+      final ByteBuffer convenienceSrcBuffer = copyOf(expected, 0, expected.length);
+      final int convenienceSrcLimit = convenienceSrcBuffer.limit();
+      final byte[] convenienceCompressedArray = new byte[maxCompressedLength];
+      final int convenienceCompressedArrayLen = compressorWithLength.compress(convenienceSrcBuffer, convenienceCompressedArray);
+      assertEquals(convenienceSrcLimit, convenienceSrcBuffer.position());
+
+      restoredArray = new byte[len];
+      assertEquals(convenienceCompressedArrayLen, fastDecompressor.decompress(convenienceCompressedArray, restoredArray));
+      assertArrayEquals(expected, restoredArray);
+    }
+  }
+
+  @Test
   public void testRoundtripGeo() throws IOException {
     testRoundTrip("/calgary/geo");
   }
@@ -427,6 +555,12 @@ public class LZ4Test extends AbstractLZ4Test {
       ByteBuffer out = Tester.BYTE_BUFFER.allocate(100).asReadOnlyBuffer();
       try {
         compressor.compress(in, out);
+        fail();
+      } catch (ReadOnlyBufferException e) {
+        // ok
+      }
+      try {
+        compressor.compress(new byte[] {2, 3}, out);
         fail();
       } catch (ReadOnlyBufferException e) {
         // ok

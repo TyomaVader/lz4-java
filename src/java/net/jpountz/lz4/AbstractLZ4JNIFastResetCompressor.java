@@ -120,6 +120,93 @@ abstract class AbstractLZ4JNIFastResetCompressor extends LZ4Compressor implement
     }
   }
 
+  /**
+   * Compresses {@code src[srcOff:srcOff+srcLen]} into
+   * {@code dest[destOff:destOff+maxDestLen]}.
+   * <p>
+   * The destination buffer must be either direct or array-backed.
+   * {@link ByteBuffer} positions remain unchanged.
+   *
+   * @param src        source data
+   * @param srcOff     the start offset in src
+   * @param srcLen     the number of bytes to compress
+   * @param dest       destination buffer
+   * @param destOff    the start offset in dest
+   * @param maxDestLen the maximum number of bytes to write in dest
+   * @return the compressed size
+   * @throws LZ4Exception if maxDestLen is too small
+   * @throws IllegalArgumentException if dest is neither array-backed nor direct
+   * @throws IllegalStateException if the compressor has been closed or is already in use
+   */
+  @Override
+  public final int compress(byte[] src, int srcOff, int srcLen, ByteBuffer dest, int destOff, int maxDestLen) {
+    if (!lock.tryLock()) {
+      throw new IllegalStateException(IN_USE_ERROR);
+    }
+
+    try {
+      long ptr = checkOpen();
+      SafeUtils.checkRange(src, srcOff, srcLen);
+      checkByteBuffer(dest);
+      ByteBufferUtils.checkNotReadOnly(dest);
+      ByteBufferUtils.checkRange(dest, destOff, maxDestLen);
+
+      byte[] destArr = dest.hasArray() ? dest.array() : null;
+      ByteBuffer destBuf = destArr == null ? dest : null;
+      int destBufferOff = destOff + (destArr != null ? dest.arrayOffset() : 0);
+
+      final int result = compressNative(
+        ptr, src, null, srcOff, srcLen,
+        destArr, destBuf, destBufferOff, maxDestLen);
+      return checkResult(result);
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /**
+   * Compresses {@code src[srcOff:srcOff+srcLen]} into
+   * {@code dest[destOff:destOff+maxDestLen]}.
+   * <p>
+   * The source buffer must be either direct or array-backed.
+   * {@link ByteBuffer} positions remain unchanged.
+   *
+   * @param src        source data
+   * @param srcOff     the start offset in src
+   * @param srcLen     the number of bytes to compress
+   * @param dest       destination buffer
+   * @param destOff    the start offset in dest
+   * @param maxDestLen the maximum number of bytes to write in dest
+   * @return the compressed size
+   * @throws LZ4Exception if maxDestLen is too small
+   * @throws IllegalArgumentException if src is neither array-backed nor direct
+   * @throws IllegalStateException if the compressor has been closed or is already in use
+   */
+  @Override
+  public final int compress(ByteBuffer src, int srcOff, int srcLen, byte[] dest, int destOff, int maxDestLen) {
+    if (!lock.tryLock()) {
+      throw new IllegalStateException(IN_USE_ERROR);
+    }
+
+    try {
+      long ptr = checkOpen();
+      checkByteBuffer(src);
+      ByteBufferUtils.checkRange(src, srcOff, srcLen);
+      SafeUtils.checkRange(dest, destOff, maxDestLen);
+
+      byte[] srcArr = src.hasArray() ? src.array() : null;
+      ByteBuffer srcBuf = srcArr == null ? src : null;
+      int srcBufferOff = srcOff + (srcArr != null ? src.arrayOffset() : 0);
+
+      final int result = compressNative(
+        ptr, srcArr, srcBuf, srcBufferOff, srcLen,
+        dest, null, destOff, maxDestLen);
+      return checkResult(result);
+    } finally {
+      lock.unlock();
+    }
+  }
+
   public final boolean isClosed() {
     lock.lock();
     try {

@@ -51,6 +51,59 @@ final class LZ4HCJNICompressor extends LZ4Compressor {
   }
 
   @Override
+  public int compress(byte[] src, int srcOff, int srcLen, ByteBuffer dest, int destOff, int maxDestLen) {
+    SafeUtils.checkRange(src, srcOff, srcLen);
+    ByteBufferUtils.checkNotReadOnly(dest);
+    ByteBufferUtils.checkRange(dest, destOff, maxDestLen);
+
+    if (dest.hasArray() || dest.isDirect()) {
+      byte[] destArr = null;
+      ByteBuffer destBuf = null;
+      if (dest.hasArray()) {
+        destArr = dest.array();
+        destOff += dest.arrayOffset();
+      } else {
+        assert dest.isDirect();
+        destBuf = dest;
+      }
+
+      final int result = LZ4JNI.LZ4_compressHC(src, null, srcOff, srcLen, destArr, destBuf, destOff, maxDestLen, compressionLevel);
+      if (result <= 0) {
+        throw new LZ4Exception();
+      }
+      return result;
+    } else {
+      return safeInstance().compress(src, srcOff, srcLen, dest, destOff, maxDestLen);
+    }
+  }
+
+  @Override
+  public int compress(ByteBuffer src, int srcOff, int srcLen, byte[] dest, int destOff, int maxDestLen) {
+    ByteBufferUtils.checkRange(src, srcOff, srcLen);
+    SafeUtils.checkRange(dest, destOff, maxDestLen);
+
+    if (src.hasArray() || src.isDirect()) {
+      byte[] srcArr = null;
+      ByteBuffer srcBuf = null;
+      if (src.hasArray()) {
+        srcArr = src.array();
+        srcOff += src.arrayOffset();
+      } else {
+        assert src.isDirect();
+        srcBuf = src;
+      }
+
+      final int result = LZ4JNI.LZ4_compressHC(srcArr, srcBuf, srcOff, srcLen, dest, null, destOff, maxDestLen, compressionLevel);
+      if (result <= 0) {
+        throw new LZ4Exception();
+      }
+      return result;
+    } else {
+      return safeInstance().compress(src, srcOff, srcLen, dest, destOff, maxDestLen);
+    }
+  }
+
+  @Override
   public int compress(ByteBuffer src, int srcOff, int srcLen, ByteBuffer dest, int destOff, int maxDestLen) {
     ByteBufferUtils.checkNotReadOnly(dest);
     ByteBufferUtils.checkRange(src, srcOff, srcLen);
@@ -80,11 +133,15 @@ final class LZ4HCJNICompressor extends LZ4Compressor {
       }
       return result;
     } else {
-      LZ4Compressor safeInstance = SAFE_INSTANCE;
-      if (safeInstance == null) {
-        safeInstance = SAFE_INSTANCE = LZ4Factory.safeInstance().highCompressor(compressionLevel);
-      }
-      return safeInstance.compress(src, srcOff, srcLen, dest, destOff, maxDestLen);
+      return safeInstance().compress(src, srcOff, srcLen, dest, destOff, maxDestLen);
     }
+  }
+
+  private LZ4Compressor safeInstance() {
+    LZ4Compressor safeInstance = SAFE_INSTANCE;
+    if (safeInstance == null) {
+      safeInstance = SAFE_INSTANCE = LZ4Factory.safeInstance().highCompressor(compressionLevel);
+    }
+    return safeInstance;
   }
 }

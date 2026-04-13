@@ -19,6 +19,7 @@ package net.jpountz.lz4;
 import junit.framework.TestCase;
 
 import java.nio.ByteBuffer;
+import java.nio.ReadOnlyBufferException;
 
 import static org.junit.Assert.assertArrayEquals;
 
@@ -126,6 +127,21 @@ public class LZ4FastResetTest extends TestCase {
 
       assertEquals(data.length, restoredLength);
       assertArrayEquals(data, readBuffer(restored, restoredLength));
+
+      assertArrayToDirectByteBufferRoundTrip(compressor, factory.safeDecompressor(), data);
+      assertDirectByteBufferToArrayRoundTrip(compressor, factory.safeDecompressor(), data);
+    }
+  }
+
+  public void testFastResetArrayToByteBufferRejectsReadOnlyDestination() {
+    byte[] data = repeatedData();
+    ByteBuffer dest = ByteBuffer.allocate(LZ4Utils.maxCompressedLength(data.length)).asReadOnlyBuffer();
+
+    try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor()) {
+      compressor.compress(data, 0, data.length, dest, 0, dest.remaining());
+      fail();
+    } catch (ReadOnlyBufferException expected) {
+      // expected
     }
   }
 
@@ -185,6 +201,21 @@ public class LZ4FastResetTest extends TestCase {
 
       assertEquals(data.length, restoredLength);
       assertArrayEquals(data, readBuffer(restored, restoredLength));
+
+      assertArrayToDirectByteBufferRoundTrip(compressor, factory.safeDecompressor(), data);
+      assertDirectByteBufferToArrayRoundTrip(compressor, factory.safeDecompressor(), data);
+    }
+  }
+
+  public void testHighFastResetArrayToByteBufferRejectsReadOnlyDestination() {
+    byte[] data = repeatedData();
+    ByteBuffer dest = ByteBuffer.allocate(LZ4Utils.maxCompressedLength(data.length)).asReadOnlyBuffer();
+
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor()) {
+      compressor.compress(data, 0, data.length, dest, 0, dest.remaining());
+      fail();
+    } catch (ReadOnlyBufferException expected) {
+      // expected
     }
   }
 
@@ -275,6 +306,10 @@ public class LZ4FastResetTest extends TestCase {
 
     assertArrayRoundTrip(compressor, decompressor, first);
     assertArrayRoundTrip(compressor, decompressor, second);
+    assertArrayToDirectByteBufferRoundTrip(compressor, decompressor, first);
+    assertArrayToDirectByteBufferRoundTrip(compressor, decompressor, second);
+    assertDirectByteBufferToArrayRoundTrip(compressor, decompressor, first);
+    assertDirectByteBufferToArrayRoundTrip(compressor, decompressor, second);
     assertDirectByteBufferRoundTrip(compressor, decompressor, second);
     assertDirectByteBufferRoundTrip(compressor, decompressor, first);
   }
@@ -291,6 +326,8 @@ public class LZ4FastResetTest extends TestCase {
     }
 
     assertArrayRoundTrip(compressor, decompressor, alternateData());
+    assertArrayToDirectByteBufferRoundTrip(compressor, decompressor, alternateData());
+    assertDirectByteBufferToArrayRoundTrip(compressor, decompressor, alternateData());
     assertDirectByteBufferRoundTrip(compressor, decompressor, data);
   }
 
@@ -321,6 +358,60 @@ public class LZ4FastResetTest extends TestCase {
     assertEquals(restoredPosition, restored.position());
     assertEquals(data.length, restoredLength);
     assertArrayEquals(data, readBuffer(restored, restoredLength));
+  }
+
+  private static void assertArrayToDirectByteBufferRoundTrip(LZ4Compressor compressor, LZ4SafeDecompressor decompressor, byte[] data) {
+    ByteBuffer compressed = ByteBuffer.allocateDirect(compressor.maxCompressedLength(data.length));
+    ByteBuffer restored = ByteBuffer.allocateDirect(data.length);
+
+    int compressedPosition = compressed.position();
+
+    int compressedLength = compressor.compress(data, 0, data.length, compressed, 0, compressed.capacity());
+    int restoredLength = decompressor.decompress(compressed, 0, compressedLength, restored, 0, restored.capacity());
+
+    assertEquals(compressedPosition, compressed.position());
+    assertEquals(data.length, restoredLength);
+    assertArrayEquals(data, readBuffer(restored, restoredLength));
+
+    ByteBuffer positionedCompressed = ByteBuffer.allocateDirect(compressor.maxCompressedLength(data.length) + 3);
+    positionedCompressed.position(3);
+    int convenienceLength = compressor.compress(data, positionedCompressed);
+    assertEquals(3 + convenienceLength, positionedCompressed.position());
+
+    ByteBuffer compressedSlice = positionedCompressed.duplicate();
+    compressedSlice.position(3);
+    compressedSlice.limit(3 + convenienceLength);
+    ByteBuffer convenienceRestored = ByteBuffer.allocateDirect(data.length);
+    decompressor.decompress(compressedSlice, convenienceRestored);
+    assertEquals(3 + convenienceLength, compressedSlice.position());
+    assertArrayEquals(data, readBuffer(convenienceRestored, data.length));
+  }
+
+  private static void assertDirectByteBufferToArrayRoundTrip(LZ4Compressor compressor, LZ4SafeDecompressor decompressor, byte[] data) {
+    ByteBuffer src = directBuffer(data);
+    byte[] compressed = new byte[compressor.maxCompressedLength(data.length)];
+
+    int srcPosition = src.position();
+    int srcLimit = src.limit();
+    int compressedLength = compressor.compress(src, srcPosition, src.remaining(), compressed, 0, compressed.length);
+
+    assertEquals(srcPosition, src.position());
+    assertEquals(srcLimit, src.limit());
+
+    byte[] restored = new byte[data.length];
+    int restoredLength = decompressor.decompress(compressed, 0, compressedLength, restored, 0);
+    assertEquals(data.length, restoredLength);
+    assertArrayEquals(data, restored);
+
+    ByteBuffer convenienceSrc = directBuffer(data);
+    byte[] convenienceCompressed = new byte[compressor.maxCompressedLength(data.length)];
+    int convenienceLength = compressor.compress(convenienceSrc, convenienceCompressed);
+    assertEquals(convenienceSrc.limit(), convenienceSrc.position());
+
+    restored = new byte[data.length];
+    restoredLength = decompressor.decompress(convenienceCompressed, 0, convenienceLength, restored, 0);
+    assertEquals(data.length, restoredLength);
+    assertArrayEquals(data, restored);
   }
 
   private static void assertFastResetUnsupported(LZ4Factory factory) {

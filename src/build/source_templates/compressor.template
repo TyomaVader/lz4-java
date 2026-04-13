@@ -22,4 +22,8 @@ final class LZ4Java${type}Compressor extends LZ4Compressor {
 
 @include{"compress.template"; storage = "ByteBuffer"; utils = "ByteBufferUtils"}
 
+@include{"compress_mixed.template"; srcStorage = "byte[]"; srcUtils = "${type}Utils"; srcAlgo = "${type}Utils"; destStorage = "ByteBuffer"; destUtils = "ByteBufferUtils"; destAlgo = "ByteBufferUtils"}
+
+@include{"compress_mixed.template"; srcStorage = "ByteBuffer"; srcUtils = "ByteBufferUtils"; srcAlgo = "ByteBufferUtils"; destStorage = "byte[]"; destUtils = "${type}Utils"; destAlgo = "${type}Utils"}
+
 }

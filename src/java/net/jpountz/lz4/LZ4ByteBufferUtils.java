@@ -138,11 +138,34 @@ enum LZ4ByteBufferUtils {
     }
   }
 
+  static void safeArraycopy(ByteBuffer src, int sOff, byte[] dest, int dOff, int len) {
+    for (int i = 0; i < len; ++i) {
+      dest[dOff + i] = src.get(sOff + i);
+    }
+  }
+
   static void wildArraycopy(ByteBuffer src, int sOff, ByteBuffer dest, int dOff, int len) {
     assert src.order().equals(dest.order());
     try {
       for (int i = 0; i < len; i += 8) {
         dest.putLong(dOff + i, src.getLong(sOff + i));
+      }
+    } catch (IndexOutOfBoundsException e) {
+      throw new LZ4Exception("Malformed input at offset " + sOff);
+    }
+  }
+
+  static void wildArraycopy(ByteBuffer src, int sOff, byte[] dest, int dOff, int len) {
+    try {
+      for (int i = 0; i < len; i += 8) {
+        dest[dOff + i] = src.get(sOff + i);
+        dest[dOff + i + 1] = src.get(sOff + i + 1);
+        dest[dOff + i + 2] = src.get(sOff + i + 2);
+        dest[dOff + i + 3] = src.get(sOff + i + 3);
+        dest[dOff + i + 4] = src.get(sOff + i + 4);
+        dest[dOff + i + 5] = src.get(sOff + i + 5);
+        dest[dOff + i + 6] = src.get(sOff + i + 6);
+        dest[dOff + i + 7] = src.get(sOff + i + 7);
       }
     } catch (IndexOutOfBoundsException e) {
       throw new LZ4Exception("Malformed input at offset " + sOff);
@@ -191,6 +214,44 @@ enum LZ4ByteBufferUtils {
     return dOff;
   }
 
+  static int encodeSequence(ByteBuffer src, int anchor, int matchOff, int matchRef, int matchLen, byte[] dest, int dOff, int destEnd) {
+    final int runLen = matchOff - anchor;
+    matchLen -= 4;
+
+    int end = dOff + sequenceLength(runLen, matchLen);
+    if (end < 0 || notEnoughSpace(destEnd - end, 1 + LAST_LITERALS)) {
+      throw new LZ4Exception("maxDestLen is too small");
+    }
+    final int tokenOff = dOff++;
+
+    int token;
+    if (runLen >= RUN_MASK) {
+      token = (byte) (RUN_MASK << ML_BITS);
+      dOff = LZ4SafeUtils.writeLen(runLen - RUN_MASK, dest, dOff);
+    } else {
+      token = runLen << ML_BITS;
+    }
+
+    wildArraycopy(src, anchor, dest, dOff, runLen);
+    dOff += runLen;
+
+    final int matchDec = matchOff - matchRef;
+    dest[dOff++] = (byte) matchDec;
+    dest[dOff++] = (byte) (matchDec >>> 8);
+
+    if (matchLen >= ML_MASK) {
+      token |= ML_MASK;
+      dOff = LZ4SafeUtils.writeLen(matchLen - RUN_MASK, dest, dOff);
+    } else {
+      token |= matchLen;
+    }
+
+    dest[tokenOff] = (byte) token;
+
+    assert end == dOff;
+    return dOff;
+  }
+
   static int lastLiterals(ByteBuffer src, int sOff, int srcLen, ByteBuffer dest, int dOff, int destEnd) {
     final int runLen = srcLen;
 
@@ -205,6 +266,25 @@ enum LZ4ByteBufferUtils {
       dest.put(dOff++, (byte) (runLen << ML_BITS));
     }
     // copy literals
+    safeArraycopy(src, sOff, dest, dOff, runLen);
+    dOff += runLen;
+
+    return dOff;
+  }
+
+  static int lastLiterals(ByteBuffer src, int sOff, int srcLen, byte[] dest, int dOff, int destEnd) {
+    final int runLen = srcLen;
+
+    if (notEnoughSpace(destEnd - dOff, 1 + lengthOfEncodedInteger(runLen) + runLen)) {
+      throw new LZ4Exception();
+    }
+
+    if (runLen >= RUN_MASK) {
+      dest[dOff++] = (byte) (RUN_MASK << ML_BITS);
+      dOff = LZ4SafeUtils.writeLen(runLen - RUN_MASK, dest, dOff);
+    } else {
+      dest[dOff++] = (byte) (runLen << ML_BITS);
+    }
     safeArraycopy(src, sOff, dest, dOff, runLen);
     dOff += runLen;
 

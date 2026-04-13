@@ -52,6 +52,49 @@ public class LZ4CompressorTest {
     }
   }
 
+  private void testArrayToByteBuffer(FuzzedDataProvider data, LZ4Compressor compressor) {
+    int destOff = data.consumeInt(0, 16);
+    int maxDestLen = data.consumeInt(0, MAX_LEN);
+    int srcOff = data.consumeInt(0, 16);
+    int srcOffEnd = data.consumeInt(0, 16);
+    int requestedSrcLen = data.consumeInt(0, MAX_LEN);
+    byte[] content = data.consumeRemainingAsBytes();
+    int srcLen = Math.min(requestedSrcLen, content.length);
+
+    byte[] src = new byte[srcOff + srcLen + srcOffEnd];
+    if (srcLen > 0) {
+      System.arraycopy(content, 0, src, srcOff, srcLen);
+    }
+    ByteBuffer destBuf = ByteBuffer.allocateDirect(destOff + maxDestLen);
+
+    try {
+      compressor.compress(src, srcOff, srcLen, destBuf, destOff, maxDestLen);
+    } catch (LZ4Exception ignored) {
+    }
+  }
+
+  private void testByteBufferToArray(FuzzedDataProvider data, LZ4Compressor compressor) {
+    int destOff = data.consumeInt(0, 16);
+    int maxDestLen = data.consumeInt(0, MAX_LEN);
+    int srcOff = data.consumeInt(0, 16);
+    int srcOffEnd = data.consumeInt(0, 16);
+    int requestedSrcLen = data.consumeInt(0, MAX_LEN);
+    byte[] content = data.consumeRemainingAsBytes();
+    int srcLen = Math.min(requestedSrcLen, content.length);
+
+    ByteBuffer srcBuf = ByteBuffer.allocateDirect(srcOff + srcLen + srcOffEnd);
+    if (srcLen > 0) {
+      srcBuf.position(srcOff);
+      srcBuf.put(content, 0, srcLen);
+    }
+    byte[] dest = new byte[destOff + maxDestLen];
+
+    try {
+      compressor.compress(srcBuf, srcOff, srcLen, dest, destOff, maxDestLen);
+    } catch (LZ4Exception ignored) {
+    }
+  }
+
   // fastCompressor: array
   @FuzzTest
   public void safe_fast_array(FuzzedDataProvider provider) {
@@ -82,6 +125,36 @@ public class LZ4CompressorTest {
   @FuzzTest
   public void native_fast_bytebuffer(FuzzedDataProvider provider) {
     testByteBuffer(provider, LZ4Factory.nativeInsecureInstance().fastCompressor());
+  }
+
+  @FuzzTest
+  public void safe_fast_array_to_bytebuffer(FuzzedDataProvider provider) {
+    testArrayToByteBuffer(provider, LZ4Factory.safeInstance().fastCompressor());
+  }
+
+  @FuzzTest
+  public void unsafe_fast_array_to_bytebuffer(FuzzedDataProvider provider) {
+    testArrayToByteBuffer(provider, LZ4Factory.unsafeInsecureInstance().fastCompressor());
+  }
+
+  @FuzzTest
+  public void native_fast_array_to_bytebuffer(FuzzedDataProvider provider) {
+    testArrayToByteBuffer(provider, LZ4Factory.nativeInsecureInstance().fastCompressor());
+  }
+
+  @FuzzTest
+  public void safe_fast_bytebuffer_to_array(FuzzedDataProvider provider) {
+    testByteBufferToArray(provider, LZ4Factory.safeInstance().fastCompressor());
+  }
+
+  @FuzzTest
+  public void unsafe_fast_bytebuffer_to_array(FuzzedDataProvider provider) {
+    testByteBufferToArray(provider, LZ4Factory.unsafeInsecureInstance().fastCompressor());
+  }
+
+  @FuzzTest
+  public void native_fast_bytebuffer_to_array(FuzzedDataProvider provider) {
+    testByteBufferToArray(provider, LZ4Factory.nativeInsecureInstance().fastCompressor());
   }
 
   // highCompressor (levels 1, 9 (default), 17 (max)): array
@@ -162,6 +235,36 @@ public class LZ4CompressorTest {
   }
 
   @FuzzTest
+  public void safe_high_l9_array_to_bytebuffer(FuzzedDataProvider provider) {
+    testArrayToByteBuffer(provider, LZ4Factory.safeInstance().highCompressor(9));
+  }
+
+  @FuzzTest
+  public void unsafe_high_l9_array_to_bytebuffer(FuzzedDataProvider provider) {
+    testArrayToByteBuffer(provider, LZ4Factory.unsafeInsecureInstance().highCompressor(9));
+  }
+
+  @FuzzTest
+  public void native_high_l9_array_to_bytebuffer(FuzzedDataProvider provider) {
+    testArrayToByteBuffer(provider, LZ4Factory.nativeInsecureInstance().highCompressor(9));
+  }
+
+  @FuzzTest
+  public void safe_high_l9_bytebuffer_to_array(FuzzedDataProvider provider) {
+    testByteBufferToArray(provider, LZ4Factory.safeInstance().highCompressor(9));
+  }
+
+  @FuzzTest
+  public void unsafe_high_l9_bytebuffer_to_array(FuzzedDataProvider provider) {
+    testByteBufferToArray(provider, LZ4Factory.unsafeInsecureInstance().highCompressor(9));
+  }
+
+  @FuzzTest
+  public void native_high_l9_bytebuffer_to_array(FuzzedDataProvider provider) {
+    testByteBufferToArray(provider, LZ4Factory.nativeInsecureInstance().highCompressor(9));
+  }
+
+  @FuzzTest
   public void safe_high_l17_bytebuffer(FuzzedDataProvider provider) {
     testByteBuffer(provider, LZ4Factory.safeInstance().highCompressor(17));
   }
@@ -203,6 +306,20 @@ public class LZ4CompressorTest {
   public void native_fastReset_bytebuffer(FuzzedDataProvider provider) {
     try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor()) {
       testByteBuffer(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_fastReset_array_to_bytebuffer(FuzzedDataProvider provider) {
+    try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor()) {
+      testArrayToByteBuffer(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_fastReset_bytebuffer_to_array(FuzzedDataProvider provider) {
+    try (LZ4JNIFastResetCompressor compressor = LZ4Factory.nativeInstance().fastResetCompressor()) {
+      testByteBufferToArray(provider, compressor);
     }
   }
 
@@ -254,6 +371,20 @@ public class LZ4CompressorTest {
   public void native_highFastReset_bytebuffer(FuzzedDataProvider provider) {
     try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor()) {
       testByteBuffer(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_highFastReset_array_to_bytebuffer(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor()) {
+      testArrayToByteBuffer(provider, compressor);
+    }
+  }
+
+  @FuzzTest
+  public void native_highFastReset_bytebuffer_to_array(FuzzedDataProvider provider) {
+    try (LZ4JNIHCFastResetCompressor compressor = LZ4Factory.nativeInstance().highFastResetCompressor()) {
+      testByteBufferToArray(provider, compressor);
     }
   }
 

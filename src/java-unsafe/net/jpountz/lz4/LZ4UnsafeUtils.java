@@ -16,6 +16,7 @@ package net.jpountz.lz4;
  * limitations under the License.
  */
 
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 import static net.jpountz.lz4.LZ4Constants.COPY_LENGTH;
@@ -50,6 +51,10 @@ enum LZ4UnsafeUtils {
     for (int i = 0; i < len; i += 8) {
       writeLong(dest, destOff + i, readLong(src, srcOff + i));
     }
+  }
+
+  static void wildArraycopy(byte[] src, int srcOff, ByteBuffer dest, int destOff, int len) {
+    LZ4SafeUtils.wildArraycopy(src, srcOff, dest, destOff, len);
   }
 
   static void wildIncrementalCopy(byte[] dest, int matchOff, int dOff, int matchCopyEnd) {
@@ -200,6 +205,10 @@ enum LZ4UnsafeUtils {
     return dOff;
   }
 
+  static int encodeSequence(byte[] src, int anchor, int matchOff, int matchRef, int matchLen, ByteBuffer dest, int dOff, int destEnd) {
+    return LZ4SafeUtils.encodeSequence(src, anchor, matchOff, matchRef, matchLen, dest, dOff, destEnd);
+  }
+
   static int commonBytesBackward(byte[] b, int o1, int o2, int l1, int l2) {
     int count = 0;
     while (o1 > l1 && o2 > l2 && readByte(b, --o1) == readByte(b, --o2)) {
@@ -209,6 +218,10 @@ enum LZ4UnsafeUtils {
   }
 
   static int lastLiterals(byte[] src, int sOff, int srcLen, byte[] dest, int dOff, int destEnd) {
+    return LZ4SafeUtils.lastLiterals(src, sOff, srcLen, dest, dOff, destEnd);
+  }
+
+  static int lastLiterals(byte[] src, int sOff, int srcLen, ByteBuffer dest, int dOff, int destEnd) {
     return LZ4SafeUtils.lastLiterals(src, sOff, srcLen, dest, dOff, destEnd);
   }
 

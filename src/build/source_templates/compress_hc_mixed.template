@@ -1,0 +1,163 @@
+@comment{
+  Copyright 2020 Adrien Grand and the lz4-java contributors.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+}
+  @Override
+  public int compress(${srcStorage} src, int srcOff, int srcLen, ${destStorage} dest, int destOff, int maxDestLen) {
+    ${srcUtils}.checkRange(src, srcOff, srcLen);
+@if{ destStorage == "ByteBuffer" }
+    ByteBufferUtils.checkNotReadOnly(dest);
+@end{}
+    ${destUtils}.checkRange(dest, destOff, maxDestLen);
+@if{ srcStorage == "byte[]" && destStorage == "ByteBuffer" }
+    if (dest.hasArray()) {
+      return compress(src, srcOff, srcLen, dest.array(), destOff + dest.arrayOffset(), maxDestLen);
+    }
+    dest = ByteBufferUtils.inNativeByteOrder(dest);
+@end{}
+@if{ srcStorage == "ByteBuffer" && destStorage == "byte[]" }
+    if (src.hasArray()) {
+      return compress(src.array(), srcOff + src.arrayOffset(), srcLen, dest, destOff, maxDestLen);
+    }
+    src = ByteBufferUtils.inNativeByteOrder(src);
+@end{}
+
+    final int srcEnd = srcOff + srcLen;
+    final int destEnd = destOff + maxDestLen;
+    final int mfLimit = srcEnd - MF_LIMIT;
+    final int matchLimit = srcEnd - LAST_LITERALS;
+
+    int sOff = srcOff;
+    int dOff = destOff;
+    int anchor = sOff++;
+
+    final HashTable ht = new HashTable(srcOff);
+    final Match match0 = new Match();
+    final Match match1 = new Match();
+    final Match match2 = new Match();
+    final Match match3 = new Match();
+
+    main:
+    while (sOff < mfLimit) {
+      if (!ht.insertAndFindBestMatch(src, sOff, matchLimit, match1)) {
+        ++sOff;
+        continue;
+      }
+
+      copyTo(match1, match0);
+
+      search2:
+      while (true) {
+        assert match1.start >= anchor;
+        if (match1.end() >= mfLimit
+            || !ht.insertAndFindWiderMatch(src, match1.end() - 2, match1.start + 1, matchLimit, match1.len, match2)) {
+          dOff = LZ4${srcAlgo}.encodeSequence(src, anchor, match1.start, match1.ref, match1.len, dest, dOff, destEnd);
+          anchor = sOff = match1.end();
+          continue main;
+        }
+
+        if (match0.start < match1.start) {
+          if (match2.start < match1.start + match0.len) {
+            copyTo(match0, match1);
+          }
+        }
+        assert match2.start > match1.start;
+
+        if (match2.start - match1.start < 3) {
+          copyTo(match2, match1);
+          continue search2;
+        }
+
+        search3:
+        while (true) {
+          if (match2.start - match1.start < OPTIMAL_ML) {
+            int newMatchLen = match1.len;
+            if (newMatchLen > OPTIMAL_ML) {
+              newMatchLen = OPTIMAL_ML;
+            }
+            if (match1.start + newMatchLen > match2.end() - MIN_MATCH) {
+              newMatchLen = match2.start - match1.start + match2.len - MIN_MATCH;
+            }
+            final int correction = newMatchLen - (match2.start - match1.start);
+            if (correction > 0) {
+              match2.fix(correction);
+            }
+          }
+
+          if (match2.start + match2.len >= mfLimit
+              || !ht.insertAndFindWiderMatch(src, match2.end() - 3, match2.start, matchLimit, match2.len, match3)) {
+            if (match2.start < match1.end()) {
+              match1.len = match2.start - match1.start;
+            }
+            dOff = LZ4${srcAlgo}.encodeSequence(src, anchor, match1.start, match1.ref, match1.len, dest, dOff, destEnd);
+            anchor = sOff = match1.end();
+            dOff = LZ4${srcAlgo}.encodeSequence(src, anchor, match2.start, match2.ref, match2.len, dest, dOff, destEnd);
+            anchor = sOff = match2.end();
+            continue main;
+          }
+
+          if (match3.start < match1.end() + 3) {
+            if (match3.start >= match1.end()) {
+              if (match2.start < match1.end()) {
+                final int correction = match1.end() - match2.start;
+                match2.fix(correction);
+                if (match2.len < MIN_MATCH) {
+                  copyTo(match3, match2);
+                }
+              }
+
+              dOff = LZ4${srcAlgo}.encodeSequence(src, anchor, match1.start, match1.ref, match1.len, dest, dOff, destEnd);
+              anchor = sOff = match1.end();
+
+              copyTo(match3, match1);
+              copyTo(match2, match0);
+
+              continue search2;
+            }
+
+            copyTo(match3, match2);
+            continue search3;
+          }
+
+          if (match2.start < match1.end()) {
+            if (match2.start - match1.start < ML_MASK) {
+              if (match1.len > OPTIMAL_ML) {
+                match1.len = OPTIMAL_ML;
+              }
+              if (match1.end() > match2.end() - MIN_MATCH) {
+                match1.len = match2.end() - match1.start - MIN_MATCH;
+              }
+              final int correction = match1.end() - match2.start;
+              match2.fix(correction);
+            } else {
+              match1.len = match2.start - match1.start;
+            }
+          }
+
+          dOff = LZ4${srcAlgo}.encodeSequence(src, anchor, match1.start, match1.ref, match1.len, dest, dOff, destEnd);
+          anchor = sOff = match1.end();
+
+          copyTo(match2, match1);
+          copyTo(match3, match2);
+
+          continue search3;
+        }
+
+      }
+
+    }
+
+    dOff = LZ4${srcAlgo}.lastLiterals(src, anchor, srcEnd - anchor, dest, dOff, destEnd);
+    return dOff - destOff;
+  }
